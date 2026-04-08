@@ -1,0 +1,21 @@
+"""认证相关 schema"""
+from pydantic import BaseModel, Field
+
+
+class LoginRequest(BaseModel):
+    phone: str = Field(..., description="手机号")
+    password: str = Field(..., description="密码")
+
+
+class LoginResponse(BaseModel):
+    token: str
+    user_id: int
+    name: str
+    role: str
+    assess_type: str
+    department: str
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str = Field(..., description="旧密码")
+    new_password: str = Field(..., description="新密码")
