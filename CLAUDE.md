@@ -65,12 +65,18 @@ assessment-system/
 │       │   ├── __init__.py
 │       │   ├── auth.py             # 认证：登录、修改密码
 │       │   ├── employee.py         # 员工 CRUD、导入、模板下载
-│       │   └── project.py          # 项目 CRUD、导入、模板下载
+│       │   ├── project.py          # 项目 CRUD、导入、模板下载
+│       │   ├── cycle.py            # 考核周期 CRUD、阶段切换
+│       │   ├── parameter.py        # 考核参数设置（5组参数）
+│       │   └── participation.py    # 项目参与度填报与管理
 │       └── services/               # 业务逻辑层
 │           ├── __init__.py
 │           ├── employee_service.py # 员工导入、校验、查询
 │           ├── project_service.py  # 项目导入、校验、系数计算
-│           └── excel_service.py    # Excel 解析与模板生成
+│           ├── excel_service.py    # Excel 解析与模板生成
+│           ├── cycle_service.py    # 考核周期管理、继承、阶段切换
+│           ├── parameter_service.py # 考核参数CRUD、重置默认值
+│           └── participation_service.py # 参与度填报、校验、统计
 ├── frontend/                       # 前端项目（待开发）
 │   └── src/
 │       ├── layouts/
@@ -105,6 +111,19 @@ assessment-system/
 - **项目导入**：Excel 批量导入，支持全量更新（POST /api/projects/import）
 - **项目模板下载**：下载标准 Excel 模板（GET /api/projects/template）
 - **自动计算**：导入/创建/编辑项目时自动计算经济规模系数、项目类型系数、工作量系数
+
+### 阶段三：考核参数与项目参与度 ✅
+
+- **考核周期管理**：创建（自动继承上一周期员工和参数）、切换活跃周期、归档
+- **阶段状态管理**：前进/回退阶段（1-5），含边界校验和阶段名称返回
+- **部门人均目标值**：批量保存/查询（部门+组/中心粒度）
+- **专项目标值**：产品合同目标值、科技创新目标值的保存/查询
+- **项目类型系数表**：查询/保存/重置为默认值（运营0.7、集成1.0、自研2.0等）
+- **员工指标系数表**：查询/保存/重置为默认值（T1=0.8 ~ T9=1.5等27个职级）
+- **签约概率设置**：获取未签约项目、批量更新概率并自动重算经济规模系数
+- **项目参与度填报**：项目经理填报（权限限制为自己的项目）、管理员查看/修改全部
+- **参与度校验**：同一项目内同部门人员参与系数合计为1（±0.01浮点误差）
+- **填报概览统计**：项目级汇总显示已填/未填状态
 
 ## 数据模型
 
@@ -199,19 +218,31 @@ assessment-system/
 | id | Integer PK | 自增主键 |
 | cycle_id | FK→cycles | 所属考核周期 |
 | employee_id | FK→employees | 员工ID |
-| project_id | FK→projects | 项目ID |
+| employee_name | String(50) | 员工姓名 |
+| project_id | FK→projects | 项目ID（公共积分为null） |
+| project_name | String(200) | 项目名称 |
 | phase | String(20) | 项目阶段：售前/交付/公共/转型 |
-| base_score | Numeric(8,2) | 基础分值 |
+| base_score | Numeric(8,2) | 基础分值：售前50/交付100/公共10/转型10 |
 | progress_coeff | Numeric(6,4) | 进度系数 |
 | workload_coeff | Numeric(10,4) | 工作量系数 |
 | participation_coeff | Numeric(5,4) | 参与系数 |
+| participant_name | String(50) | 参与人 |
+| participant_role | String(20) | 参与人角色 |
+| work_description | String(500) | 完成的工作 |
 | score | Numeric(10,2) | 分数=基础×进度×工作量×参与 |
+| modified_by | String(50) | 修改人 |
+| modified_at | DateTime | 修改时间 |
+| remark | String(500) | 备注 |
 
 ### score_summaries（积分汇总）
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | Integer PK | 自增主键 |
-| cycle_id/employee_id | FK | 关联 |
+| cycle_id | FK→cycles | 所属考核周期 |
+| employee_id | FK→employees | 员工ID |
+| employee_name | String(50) | 员工姓名 |
+| department | String(50) | 部门 |
+| assess_type | String(20) | 考核类型 |
 | project_score_total | Numeric(10,2) | 项目积分合计 |
 | public_score_total | Numeric(10,2) | 公共积分合计 |
 | transform_score_total | Numeric(10,2) | 转型积分合计 |
@@ -222,35 +253,110 @@ assessment-system/
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | Integer PK | 自增主键 |
+| cycle_id | FK→cycles | 所属考核周期 |
 | evaluatee_id | FK→employees | 被评人ID |
+| evaluatee_name | String(50) | 被评人姓名 |
+| evaluatee_assess_type | String(20) | 被评人考核类型 |
 | evaluator_id | FK→employees | 评价人ID |
-| evaluator_type | String(20) | 评价人类型：同事/上级领导/部门领导等 |
-| evaluator_order | Integer | 评价人序号 |
+| evaluator_name | String(50) | 评价人姓名 |
+| evaluator_type | String(20) | 评价人类型：同事/上级领导/部门领导/基层管理互评/部门员工 |
+| evaluator_order | Integer | 评价人序号（同事1~4） |
 | is_completed | Boolean | 是否已完成评分 |
 
 ### eval_scores（评分记录）
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | Integer PK | 自增主键 |
+| cycle_id | FK→cycles | 所属考核周期 |
 | relation_id | FK→eval_relations | 互评关系ID |
+| evaluatee_id | FK→employees | 被评人ID |
+| evaluator_id | FK→employees | 评价人ID |
 | dimension | String(50) | 评分维度 |
 | max_score | Numeric(6,2) | 该维度满分 |
 | score | Numeric(6,2) | 评分 |
 
 ### eval_summaries（评分汇总）
-各同事评分、上级领导评分、部门领导评分、加权汇总得分、最终得分（折算到30分）
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | Integer PK | 自增主键 |
+| cycle_id | FK→cycles | 所属考核周期 |
+| employee_id | FK→employees | 被评人ID |
+| employee_name | String(50) | 被评人姓名 |
+| department | String(50) | 部门 |
+| position | String(50) | 岗位 |
+| assess_type | String(20) | 考核类型 |
+| colleague1_score | Numeric(6,2) | 同事1评分 |
+| colleague2_score | Numeric(6,2) | 同事2评分 |
+| colleague3_score | Numeric(6,2) | 同事3评分 |
+| colleague4_score | Numeric(6,2) | 同事4评分 |
+| superior_score | Numeric(6,2) | 上级领导评分 |
+| dept_leader_score | Numeric(6,2) | 部门领导评分 |
+| weighted_total | Numeric(6,2) | 加权汇总得分 |
+| final_score | Numeric(6,2) | 最终得分（折算到30分） |
 
 ### work_goal_scores（工作目标完成度评分）
-公共人员专用，领导打分，满分70分，含文字评语
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | Integer PK | 自增主键 |
+| cycle_id | FK→cycles | 所属考核周期 |
+| employee_id | FK→employees | 被评公共人员ID |
+| leader_id | FK→employees | 评分领导ID |
+| score | Numeric(6,2) | 工作目标完成度得分（满分70） |
+| comment | String(1000) | 文字评语 |
 
 ### bonus_records（加减分记录）
-员工加减分记录，-10~+10范围
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | Integer PK | 自增主键 |
+| cycle_id | FK→cycles | 所属考核周期 |
+| employee_id | FK→employees | 员工ID |
+| employee_name | String(50) | 员工姓名 |
+| department | String(50) | 部门 |
+| assess_type | String(20) | 考核类型 |
+| description | String(500) | 加减分项说明 |
+| value | Numeric(5,2) | 加减分值 -10~+10 |
 
 ### key_task_scores（重点任务分数）
-基层管理人员专用，0~10分，线下评定后管理员录入
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | Integer PK | 自增主键 |
+| cycle_id | FK→cycles | 所属考核周期 |
+| employee_id | FK→employees | 员工ID |
+| employee_name | String(50) | 员工姓名 |
+| score | Numeric(5,2) | 重点任务分数 0~10 |
 
 ### final_results（最终考核成绩）
-各维度得分、总分、排名、评定等级、混合角色支持
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | Integer PK | 自增主键 |
+| cycle_id | FK→cycles | 所属考核周期 |
+| employee_id | FK→employees | 员工ID |
+| employee_name | String(50) | 员工姓名 |
+| department | String(50) | 部门 |
+| group_name | String(50) | 组/中心 |
+| grade | String(20) | 岗级 |
+| assess_type | String(20) | 考核类型 |
+| is_mixed_role | Boolean | 是否混合角色 |
+| work_score | Numeric(8,2) | 工作积分得分 |
+| work_score_max | Numeric(5,2) | 工作积分满分（30或50） |
+| economic_score | Numeric(8,2) | 经济指标得分 |
+| economic_score_max | Numeric(5,2) | 经济指标满分（20或30） |
+| key_task_score | Numeric(5,2) | 重点任务得分（/10，仅基层管理人员） |
+| work_goal_score | Numeric(8,2) | 工作目标完成度得分（/70，仅公共人员） |
+| eval_score | Numeric(8,2) | 综合评价得分（/30） |
+| bonus_score | Numeric(5,2) | 加减分（±10） |
+| total_score | Numeric(8,2) | 总分 |
+| ranking | Integer | 排名（同部门同类型内） |
+| rating | String(20) | 评定等级 |
+| leader_comment | String(1000) | 领导评语 |
+| secondary_assess_type | String(20) | 第二考核类型 |
+| secondary_work_score | Numeric(8,2) | 第二身份工作积分得分 |
+| secondary_economic_score | Numeric(8,2) | 第二身份经济指标得分 |
+| secondary_key_task_score | Numeric(5,2) | 第二身份重点任务得分 |
+| secondary_eval_score | Numeric(8,2) | 第二身份综合评价得分 |
+| secondary_bonus_score | Numeric(5,2) | 第二身份加减分 |
+| secondary_total_score | Numeric(8,2) | 第二身份总分 |
+| no_excellent_flag | Boolean | 不可评优标记（同年2次基本合格） |
 
 ### dept_targets（部门人均目标值）
 各部门/组的人均利润目标值和人均自研收入目标值
@@ -288,6 +394,30 @@ assessment-system/
 | /api/projects/{id} | DELETE | 删除项目 | 管理员 | ✅ |
 | /api/projects/import | POST | Excel导入项目 | 管理员 | ✅ |
 | /api/projects/template | GET | 下载项目模板 | 无 | ✅ |
+| /api/cycles | GET | 获取所有考核周期 | 登录 | ✅ |
+| /api/cycles | POST | 创建新考核周期 | 管理员 | ✅ |
+| /api/cycles/active | GET | 获取当前活跃周期 | 登录 | ✅ |
+| /api/cycles/{id}/activate | POST | 切换活跃周期 | 管理员 | ✅ |
+| /api/cycles/{id}/archive | POST | 归档考核周期 | 管理员 | ✅ |
+| /api/cycles/{id}/phase | POST | 切换阶段（next/prev） | 管理员 | ✅ |
+| /api/parameters/dept-targets | GET | 获取部门人均目标值 | 管理员 | ✅ |
+| /api/parameters/dept-targets | POST | 保存部门人均目标值 | 管理员 | ✅ |
+| /api/parameters/special-targets | GET | 获取专项目标值 | 管理员 | ✅ |
+| /api/parameters/special-targets | POST | 保存专项目标值 | 管理员 | ✅ |
+| /api/parameters/project-type-coeffs | GET | 获取项目类型系数表 | 管理员 | ✅ |
+| /api/parameters/project-type-coeffs | POST | 保存项目类型系数 | 管理员 | ✅ |
+| /api/parameters/project-type-coeffs/reset | POST | 重置项目类型系数 | 管理员 | ✅ |
+| /api/parameters/indicator-coeffs | GET | 获取员工指标系数表 | 管理员 | ✅ |
+| /api/parameters/indicator-coeffs | POST | 保存员工指标系数 | 管理员 | ✅ |
+| /api/parameters/indicator-coeffs/reset | POST | 重置员工指标系数 | 管理员 | ✅ |
+| /api/parameters/signing-probabilities | GET | 获取未签约项目列表 | 管理员 | ✅ |
+| /api/parameters/signing-probabilities | POST | 保存签约概率 | 管理员 | ✅ |
+| /api/participations | GET | 管理员查看所有参与度 | 管理员 | ✅ |
+| /api/participations | POST | 保存/提交参与度 | 项目经理/管理员 | ✅ |
+| /api/participations/{id} | DELETE | 删除参与度记录 | 项目经理/管理员 | ✅ |
+| /api/participations/my-projects | GET | 获取负责的项目列表 | 项目经理/管理员 | ✅ |
+| /api/participations/project/{id} | GET | 获取项目参与度 | 项目经理/管理员 | ✅ |
+| /api/participations/summary | GET | 参与度填报概览 | 管理员 | ✅ |
 
 ## 业务规则备忘
 
@@ -311,15 +441,10 @@ assessment-system/
 | 2026-04-07 | 阶段一完成：项目脚手架、18张数据库表、Alembic迁移、FastAPI入口 | 全部后端基础文件 |
 | 2026-04-08 | 修复遗留问题：projects表补充5个字段（start_date/end_date/customer_name/used_presale_progress/used_delivery_progress） | models/project.py, schemas/project.py, Alembic迁移 |
 | 2026-04-08 | 阶段二完成：认证、员工CRUD、项目CRUD、Excel导入/模板下载 | routers/, services/, main.py |
+| 2026-04-09 | 阶段三完成：考核周期管理、阶段切换、考核参数CRUD（5组）、项目参与度填报与校验 | routers/cycle.py, parameter.py, participation.py, services/ |
+| 2026-04-09 | 补全CLAUDE.md数据模型文档：eval_summaries/work_goal_scores/bonus_records/key_task_scores/final_results完整字段定义；eval_relations/eval_scores/score_details/score_summaries补充漏记字段 | CLAUDE.md |
 
 ## 待开发
-
-### 阶段三：考核参数与项目参与度
-- 考核参数 CRUD API（部门目标值、专项目标值、项目类型系数、员工指标系数）
-- 项目参与度 CRUD API（项目经理填写、管理员查看/修改）
-- 参与度校验（同部门参与系数合计为1）
-- 考核周期管理 API（创建、切换、归档）
-- 阶段状态管理 API
 
 ### 阶段四：积分计算与公共积分申报
 - 公共积分申报 API（员工申报、管理员审核/修改）
