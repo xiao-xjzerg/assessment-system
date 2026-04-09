@@ -68,7 +68,10 @@ assessment-system/
 │       │   ├── project.py          # 项目 CRUD、导入、模板下载
 │       │   ├── cycle.py            # 考核周期 CRUD、阶段切换
 │       │   ├── parameter.py        # 考核参数设置（5组参数）
-│       │   └── participation.py    # 项目参与度填报与管理
+│       │   ├── participation.py    # 项目参与度填报与管理
+│       │   ├── public_score.py     # 公共积分申报（员工申报/管理员审核修改）
+│       │   ├── score.py            # 积分统计（明细/汇总/计算/导出Excel）
+│       │   └── evaluation.py       # 360评价（互评关系/评分/汇总/工作目标完成度）
 │       └── services/               # 业务逻辑层
 │           ├── __init__.py
 │           ├── employee_service.py # 员工导入、校验、查询
@@ -76,7 +79,10 @@ assessment-system/
 │           ├── excel_service.py    # Excel 解析与模板生成
 │           ├── cycle_service.py    # 考核周期管理、继承、阶段切换
 │           ├── parameter_service.py # 考核参数CRUD、重置默认值
-│           └── participation_service.py # 参与度填报、校验、统计
+│           ├── participation_service.py # 参与度填报、校验、统计
+│           ├── public_score_service.py  # 公共积分申报、计算规模值/复杂性值
+│           ├── score_service.py    # 积分全量计算、明细/汇总生成、开方归一化
+│           └── evaluation_service.py # 360评价：互评匹配、评分、汇总、工作目标完成度
 ├── frontend/                       # 前端项目（待开发）
 │   └── src/
 │       ├── layouts/
@@ -418,6 +424,31 @@ assessment-system/
 | /api/participations/my-projects | GET | 获取负责的项目列表 | 项目经理/管理员 | ✅ |
 | /api/participations/project/{id} | GET | 获取项目参与度 | 项目经理/管理员 | ✅ |
 | /api/participations/summary | GET | 参与度填报概览 | 管理员 | ✅ |
+| /api/public-scores | POST | 员工提交公共积分申报 | 登录 | ✅ |
+| /api/public-scores | GET | 查询公共积分申报 | 登录（员工看自己/管理员看全部） | ✅ |
+| /api/public-scores/{id} | PUT | 修改公共积分申报 | 登录（员工改自己/管理员改全部） | ✅ |
+| /api/public-scores/{id} | DELETE | 删除公共积分申报 | 登录（员工删自己/管理员删全部） | ✅ |
+| /api/scores/calculate | POST | 触发全量积分计算 | 管理员 | ✅ |
+| /api/scores/details | GET | 查询积分明细 | 登录（按角色权限） | ✅ |
+| /api/scores/details/{id} | PUT | 编辑积分明细 | 管理员 | ✅ |
+| /api/scores/summary | GET | 查询积分汇总 | 登录（按角色权限） | ✅ |
+| /api/scores/export | GET | 导出积分统计Excel | 管理员 | ✅ |
+| /api/evaluations/relations/generate | POST | 自动生成互评关系 | 管理员 | ✅ |
+| /api/evaluations/relations | GET | 查看互评关系列表 | 管理员 | ✅ |
+| /api/evaluations/relations/{id} | PUT | 修改互评关系评价人 | 管理员 | ✅ |
+| /api/evaluations/relations/export | GET | 导出互评关系Excel | 管理员 | ✅ |
+| /api/evaluations/my-tasks | GET | 获取我的评价任务 | 登录 | ✅ |
+| /api/evaluations/dimensions | GET | 获取评分维度与满分 | 登录 | ✅ |
+| /api/evaluations/scores | POST | 提交评分 | 登录 | ✅ |
+| /api/evaluations/scores/{relation_id} | GET | 查看评分详情 | 管理员/评价人 | ✅ |
+| /api/evaluations/scores/{relation_id}/reset | POST | 重置评分 | 管理员 | ✅ |
+| /api/evaluations/summaries/calculate | POST | 触发评分汇总计算 | 管理员 | ✅ |
+| /api/evaluations/summaries | GET | 查询评分汇总 | 登录（按角色权限） | ✅ |
+| /api/evaluations/summaries/export | GET | 导出评分汇总Excel | 管理员 | ✅ |
+| /api/evaluations/progress | GET | 获取评价进度统计 | 管理员 | ✅ |
+| /api/evaluations/work-goals/employees | GET | 获取待评公共人员列表 | 领导/管理员 | ✅ |
+| /api/evaluations/work-goals | POST | 保存工作目标完成度评分 | 领导/管理员 | ✅ |
+| /api/evaluations/work-goals | GET | 查询工作目标完成度评分 | 登录（按角色权限） | ✅ |
 
 ## 业务规则备忘
 
@@ -428,7 +459,10 @@ assessment-system/
 5. **公共活动积分上限**为该员工项目积分的15%，转型活动不设上限
 6. **混合角色**按两种身份分别计算后取50%权重合并
 7. **排名**在同部门、同考核类型内进行
-8. **score_details 与 public_scores 的关系**：
+8. **360评价匿名性**：评分详情API仅管理员和评价人本人可看，被评人不可查看具体评分来源
+9. **评分提交后锁定**：评分提交后不可修改，管理员可通过重置接口允许重新评分
+10. **工作目标完成度**：仅适用于公共人员，由同部门领导打分，满分70分
+11. **score_details 与 public_scores 的关系**：
    - `public_scores` 是**公共积分申报原始表**，由员工填报活动信息（名称、类型、人月、复杂度），系统自动计算规模值、复杂性值、工作量系数和积分
    - `score_details` 是**积分明细汇总表**，汇集所有来源的积分（售前/交付/公共/转型），其中 phase="公共"或"转型" 的记录源自 public_scores
    - 计算流程：员工在 public_scores 申报 → 管理员审核 → 系统将审核通过的记录写入 score_details（phase="公共"/"转型"，project_id 为 null）→ 最终在 score_summaries 中汇总
@@ -443,22 +477,43 @@ assessment-system/
 | 2026-04-08 | 阶段二完成：认证、员工CRUD、项目CRUD、Excel导入/模板下载 | routers/, services/, main.py |
 | 2026-04-09 | 阶段三完成：考核周期管理、阶段切换、考核参数CRUD（5组）、项目参与度填报与校验 | routers/cycle.py, parameter.py, participation.py, services/ |
 | 2026-04-09 | 补全CLAUDE.md数据模型文档：eval_summaries/work_goal_scores/bonus_records/key_task_scores/final_results完整字段定义；eval_relations/eval_scores/score_details/score_summaries补充漏记字段 | CLAUDE.md |
+| 2026-04-09 | 阶段四完成：公共积分申报API（CRUD+自动计算规模值/复杂性值/工作量系数）、积分全量计算（售前/交付/公共/转型）、公共活动积分15%上限、积分明细与汇总生成、开方归一化得分、管理员编辑明细、Excel导出 | routers/public_score.py, score.py, services/public_score_service.py, score_service.py |
+| 2026-04-09 | 阶段五完成：互评关系自动匹配算法、互评关系管理API（生成/查看/编辑/导出）、在线评分API（提交/查看/重置）、评分汇总计算（加权/折算30分）、工作目标完成度评分（领导→公共人员）、评价进度统计 | routers/evaluation.py, services/evaluation_service.py, schemas/evaluation.py |
+
+### 阶段四：积分计算与公共积分申报 ✅
+
+- **公共积分申报 API**：员工申报（POST /api/public-scores）、查询（GET）、编辑（PUT）、删除（DELETE）
+- **申报自动计算**：规模值（按人月分段插值）、复杂性值（较简单0.6/中等1.0/极大1.8）、工作量系数、积分
+- **管理员审核/修改**：管理员可直接修改工作量系数和积分，状态变为"管理员已修改"
+- **积分全量计算**：POST /api/scores/calculate 触发，自动生成售前/交付/公共/转型积分明细
+- **公共活动积分上限**：不超过该员工项目积分的15%，超出时按比例缩减
+- **积分明细与汇总表**：自动生成 score_details 和 score_summaries
+- **开方归一化得分**：基层管理人员30分制、业务人员/产品研发人员50分制
+- **积分统计查询**：明细查询（GET /api/scores/details）、汇总查询（GET /api/scores/summary）
+- **管理员编辑明细**：PUT /api/scores/details/{id}，修改后自动重算积分
+- **Excel导出**：GET /api/scores/export，含积分汇总和积分明细两个Sheet
+
+### 阶段五：360评价 ✅
+
+- **互评关系自动匹配算法**：POST /api/evaluations/relations/generate 触发
+  - 业务人员/产品研发人员：自动匹配4个同事（优先级：同部门同项目>同组>同部门不同组）+ 上级领导 + 部门领导
+  - 基层管理人员：自动匹配4个部门员工 + 其他基层管理互评 + 部门领导
+  - 公共人员：自动匹配4个部门员工 + 部门领导
+- **互评关系管理 API**：查看（GET）、编辑评价人（PUT）、导出Excel（GET /api/evaluations/relations/export）
+- **在线评分 API**：获取评价任务（GET /api/evaluations/my-tasks）、获取评分维度（GET /api/evaluations/dimensions）、提交评分（POST /api/evaluations/scores）
+  - 评分维度按考核类型区分：业务人员(工作任务完成度60+工作态度40)、产品研发人员(工作任务完成度60+工作态度40)、基层管理人员(能力40+管理40+态度20)、公共人员(工作能力60+工作态度40)
+  - 提交后不可修改，管理员可重置（POST /api/evaluations/scores/{id}/reset）
+- **评分汇总计算**：POST /api/evaluations/summaries/calculate 触发加权汇总
+  - 业务人员：同事均分×40% + 上级领导×30% + 部门领导×30%
+  - 产品研发人员：同事均分×30% + 上级领导×40% + 部门领导×30%
+  - 基层管理人员：部门员工均分×30% + 基层管理互评均分×30% + 部门领导×40%
+  - 公共人员：部门员工均分×50% + 部门领导×50%
+  - 最终得分 = 加权总分 / 100 × 30
+- **工作目标完成度评分**：领导为公共人员打分（满分70分），POST /api/evaluations/work-goals
+- **评价进度统计**：GET /api/evaluations/progress 返回总数/已完成/未完成/进度百分比
+- **Excel导出**：互评关系导出、综合评价汇总导出
 
 ## 待开发
-
-### 阶段四：积分计算与公共积分申报
-- 公共积分申报 API（员工申报、管理员审核/修改）
-- 积分自动计算（售前/交付/公共/转型）
-- 积分明细与汇总表生成
-- 开方归一化得分计算
-- 积分统计报表 API
-
-### 阶段五：360评价
-- 互评关系自动匹配算法
-- 互评关系管理 API
-- 在线评分 API
-- 评分汇总计算（加权、折算到30分）
-- 工作目标完成度评分（领导→公共人员）
 
 ### 阶段六：经济指标、加减分与最终成绩
 - 经济指标计算 API

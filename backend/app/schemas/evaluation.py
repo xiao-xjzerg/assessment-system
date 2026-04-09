@@ -35,6 +35,19 @@ class EvalScoreSubmit(BaseModel):
     scores: List[EvalScoreItem]
 
 
+class EvalScoreOut(BaseModel):
+    id: int
+    cycle_id: int
+    relation_id: int
+    evaluatee_id: int
+    evaluator_id: int
+    dimension: str
+    max_score: Decimal
+    score: Decimal
+
+    model_config = {"from_attributes": True}
+
+
 class EvalSummaryOut(BaseModel):
     id: int
     cycle_id: int
@@ -70,3 +83,10 @@ class WorkGoalScoreOut(BaseModel):
     comment: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+class EvalProgressOut(BaseModel):
+    total: int
+    completed: int
+    pending: int
+    progress: float

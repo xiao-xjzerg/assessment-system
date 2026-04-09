@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
-from app.routers import auth, employee, project, cycle, parameter, participation
+from app.routers import auth, employee, project, cycle, parameter, participation, public_score, score, evaluation
 
 
 @asynccontextmanager
@@ -38,6 +38,9 @@ app.include_router(project.router)
 app.include_router(cycle.router)
 app.include_router(parameter.router)
 app.include_router(participation.router)
+app.include_router(public_score.router)
+app.include_router(score.router)
+app.include_router(evaluation.router)
 
 
 @app.get("/")
