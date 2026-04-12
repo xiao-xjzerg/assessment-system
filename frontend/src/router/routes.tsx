@@ -1,0 +1,285 @@
+/**
+ * 应用路由表（批次 3：路由骨架 + 登录 + 修改密码）
+ *
+ * 本文件定义“受保护区”（BasicLayout 内部）的菜单路由。
+ * 每条路由可选 roles 控制可见性 —— 若缺省则对所有登录用户可见。
+ * 大部分业务页面在后续批次实现，现在先用 Placeholder 占位，
+ * 既让路由能命中，也让菜单生成逻辑一次到位。
+ */
+import type { ReactNode } from 'react';
+import { Result } from 'antd';
+import {
+  DashboardOutlined,
+  TeamOutlined,
+  ProjectOutlined,
+  SettingOutlined,
+  FormOutlined,
+  BarChartOutlined,
+  SolutionOutlined,
+  TrophyOutlined,
+  UserOutlined,
+} from '@ant-design/icons';
+import ChangePasswordPage from '@/pages/changePassword';
+import CyclePage from '@/pages/cycle';
+import DashboardPage from '@/pages/dashboard';
+import EmployeePage from '@/pages/employee';
+import ParameterPage from '@/pages/parameter';
+import ProjectPage from '@/pages/project';
+import ThemePreviewPage from '@/pages/system/themePreview';
+import { ROLE, type Role } from '@/utils/constants';
+
+/** 通用占位页 —— 将在对应批次替换为真实页面 */
+function Placeholder({ title, batch }: { title: string; batch: string }) {
+  return (
+    <Result
+      status="info"
+      title={title}
+      subTitle={`该页面将在 ${batch} 实现，当前仅路由占位。`}
+    />
+  );
+}
+
+export interface AppRouteNode {
+  /** 相对于 BasicLayout 的路径段（不以 / 开头） */
+  path: string;
+  /** 菜单显示名 */
+  title: string;
+  /** 菜单图标（可选） */
+  icon?: ReactNode;
+  /** 允许的角色；未指定视为所有登录用户 */
+  roles?: Role[];
+  /** 路由对应组件；有 children 时可省略（作为菜单分组） */
+  element?: ReactNode;
+  /** 子路由 */
+  children?: AppRouteNode[];
+  /** 不在菜单中显示（但仍是有效路由） */
+  hideInMenu?: boolean;
+}
+
+/**
+ * 路由定义。路径段之间不写前导斜杠，BasicLayout 会根据层级拼接。
+ */
+export const appRoutes: AppRouteNode[] = [
+  {
+    path: 'dashboard',
+    title: '工作台',
+    icon: <DashboardOutlined />,
+    element: <DashboardPage />,
+  },
+  {
+    path: 'data',
+    title: '基础数据',
+    icon: <TeamOutlined />,
+    roles: [ROLE.ADMIN],
+    children: [
+      {
+        path: 'employees',
+        title: '员工管理',
+        icon: <TeamOutlined />,
+        roles: [ROLE.ADMIN],
+        element: <EmployeePage />,
+      },
+      {
+        path: 'projects',
+        title: '项目管理',
+        icon: <ProjectOutlined />,
+        roles: [ROLE.ADMIN],
+        element: <ProjectPage />,
+      },
+    ],
+  },
+  {
+    path: 'settings',
+    title: '考核设置',
+    icon: <SettingOutlined />,
+    roles: [ROLE.ADMIN],
+    children: [
+      {
+        path: 'cycles',
+        title: '考核周期',
+        roles: [ROLE.ADMIN],
+        element: <CyclePage />,
+      },
+      {
+        path: 'parameters',
+        title: '考核参数',
+        roles: [ROLE.ADMIN],
+        element: <ParameterPage />,
+      },
+    ],
+  },
+  {
+    path: 'declare',
+    title: '填报申报',
+    icon: <FormOutlined />,
+    children: [
+      {
+        path: 'participation',
+        title: '项目参与度',
+        roles: [ROLE.ADMIN, ROLE.PM],
+        element: <Placeholder title="项目参与度" batch="批次 6" />,
+      },
+      {
+        path: 'public-score',
+        title: '公共积分申报',
+        element: <Placeholder title="公共积分申报" batch="批次 6" />,
+      },
+    ],
+  },
+  {
+    path: 'stats',
+    title: '统计分析',
+    icon: <BarChartOutlined />,
+    roles: [ROLE.ADMIN],
+    children: [
+      {
+        path: 'score',
+        title: '积分统计',
+        roles: [ROLE.ADMIN],
+        element: <Placeholder title="积分统计" batch="批次 7" />,
+      },
+      {
+        path: 'economic',
+        title: '经济指标',
+        roles: [ROLE.ADMIN],
+        element: <Placeholder title="经济指标" batch="批次 7" />,
+      },
+    ],
+  },
+  {
+    path: 'evaluation',
+    title: '360 评价',
+    icon: <SolutionOutlined />,
+    children: [
+      {
+        path: 'relations',
+        title: '互评关系',
+        roles: [ROLE.ADMIN],
+        element: <Placeholder title="互评关系" batch="批次 8" />,
+      },
+      {
+        path: 'my-tasks',
+        title: '我的评价',
+        element: <Placeholder title="我的评价" batch="批次 8" />,
+      },
+      {
+        path: 'summary',
+        title: '评分汇总',
+        roles: [ROLE.ADMIN],
+        element: <Placeholder title="评分汇总" batch="批次 8" />,
+      },
+      {
+        path: 'work-goal',
+        title: '工作目标',
+        roles: [ROLE.ADMIN, ROLE.PM],
+        element: <Placeholder title="工作目标完成度" batch="批次 8" />,
+      },
+    ],
+  },
+  {
+    path: 'result',
+    title: '结果管理',
+    icon: <TrophyOutlined />,
+    roles: [ROLE.ADMIN, ROLE.LEADER],
+    children: [
+      {
+        path: 'bonus',
+        title: '加减分 / 重点任务',
+        roles: [ROLE.ADMIN],
+        element: <Placeholder title="加减分 / 重点任务" batch="批次 9" />,
+      },
+      {
+        path: 'final',
+        title: '最终成绩',
+        roles: [ROLE.ADMIN, ROLE.LEADER],
+        element: <Placeholder title="最终成绩" batch="批次 9" />,
+      },
+    ],
+  },
+  {
+    path: 'system',
+    title: '系统设置',
+    icon: <SettingOutlined />,
+    roles: [ROLE.ADMIN],
+    children: [
+      {
+        path: 'theme-preview',
+        title: '主题预览',
+        roles: [ROLE.ADMIN],
+        element: <ThemePreviewPage />,
+      },
+    ],
+  },
+  {
+    path: 'profile',
+    title: '个人中心',
+    icon: <UserOutlined />,
+    children: [
+      {
+        path: 'me',
+        title: '个人信息',
+        element: <Placeholder title="个人信息" batch="批次 10" />,
+      },
+      {
+        path: 'change-password',
+        title: '修改密码',
+        element: <ChangePasswordPage />,
+      },
+    ],
+  },
+];
+
+// ==================== 辅助函数 ====================
+
+/** 判断一条路由节点对指定角色是否可见 */
+export function isRouteVisible(node: AppRouteNode, role: string | undefined): boolean {
+  if (!role) return false;
+  if (!node.roles || node.roles.length === 0) return true;
+  return node.roles.includes(role as Role);
+}
+
+/** 按角色过滤一棵路由树（深拷贝过滤后的结构；会移除全部子节点都被过滤掉的分组） */
+export function filterRoutesByRole(
+  nodes: AppRouteNode[],
+  role: string | undefined,
+): AppRouteNode[] {
+  const result: AppRouteNode[] = [];
+  for (const node of nodes) {
+    if (!isRouteVisible(node, role)) continue;
+    if (node.children && node.children.length > 0) {
+      const children = filterRoutesByRole(node.children, role);
+      if (children.length === 0) continue;
+      result.push({ ...node, children });
+    } else {
+      result.push({ ...node });
+    }
+  }
+  return result;
+}
+
+/** 把相对路径按层级拼成绝对路径 */
+export function joinPath(parent: string, segment: string): string {
+  const p = parent.endsWith('/') ? parent.slice(0, -1) : parent;
+  const s = segment.startsWith('/') ? segment.slice(1) : segment;
+  return `${p}/${s}`;
+}
+
+/** 查找首个可访问的叶子路由绝对路径（用于登录后重定向到有权限的第一个页面） */
+export function findFirstAccessibleRoute(
+  nodes: AppRouteNode[],
+  role: string | undefined,
+  parent = '',
+): string | null {
+  for (const node of nodes) {
+    if (node.hideInMenu) continue;
+    if (!isRouteVisible(node, role)) continue;
+    const full = joinPath(parent, node.path);
+    if (node.children && node.children.length > 0) {
+      const found = findFirstAccessibleRoute(node.children, role, full);
+      if (found) return found;
+    } else if (node.element) {
+      return full;
+    }
+  }
+  return null;
+}
