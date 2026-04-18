@@ -137,7 +137,6 @@ async def _inherit_from_previous(db: AsyncSession, prev_cycle_id: int, new_cycle
             password_hash=emp.password_hash,
             role=emp.role,
             assess_type=emp.assess_type,
-            assess_type_secondary=emp.assess_type_secondary,
             is_active=emp.is_active,
         )
         db.add(new_emp)

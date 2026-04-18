@@ -120,9 +120,7 @@ async def save_key_task_score(
     emp = await db.get(Employee, employee_id)
     if emp is None:
         raise ValueError("员工不存在")
-    if emp.assess_type != ASSESS_TYPE_MANAGER and (
-        emp.assess_type_secondary != ASSESS_TYPE_MANAGER if emp.assess_type_secondary else True
-    ):
+    if emp.assess_type != ASSESS_TYPE_MANAGER:
         raise ValueError("重点任务分数仅适用于基层管理人员")
 
     # 校验分数范围

@@ -13,7 +13,6 @@ class FinalResultOut(BaseModel):
     group_name: Optional[str] = None
     grade: Optional[str] = None
     assess_type: str
-    is_mixed_role: bool
     work_score: Decimal
     work_score_max: Decimal
     economic_score: Decimal
@@ -26,13 +25,6 @@ class FinalResultOut(BaseModel):
     ranking: int
     rating: Optional[str] = None
     leader_comment: Optional[str] = None
-    secondary_assess_type: Optional[str] = None
-    secondary_work_score: Decimal = Decimal("0")
-    secondary_economic_score: Decimal = Decimal("0")
-    secondary_key_task_score: Decimal = Decimal("0")
-    secondary_eval_score: Decimal = Decimal("0")
-    secondary_bonus_score: Decimal = Decimal("0")
-    secondary_total_score: Decimal = Decimal("0")
     no_excellent_flag: bool = False
 
     model_config = {"from_attributes": True}

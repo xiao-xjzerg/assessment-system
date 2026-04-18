@@ -278,13 +278,6 @@ export default function ResultPage() {
       },
     },
     {
-      title: '混合',
-      dataIndex: 'is_mixed_role',
-      width: 55,
-      align: 'center',
-      render: (v: boolean) => v ? <Tag color="purple">是</Tag> : null,
-    },
-    {
       title: '操作',
       width: 70,
       fixed: 'right',

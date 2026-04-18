@@ -151,47 +151,46 @@ async def export_excel(
                 "姓名", "部门", "组/中心", "岗级",
                 "工作积分得分(/30)", "经济指标得分(/30)",
                 "重点任务得分(/10)", "综合评价得分(/30)",
-                "加减分(±10)", "总分", "排名", "评定等级", "备注",
+                "加减分(±10)", "总分", "排名", "评定等级",
             ]
         elif assess_type == ASSESS_TYPE_PUBLIC:
             headers = [
                 "姓名", "部门", "组/中心", "岗级",
                 "工作目标完成度得分(/70)", "综合评价得分(/30)",
-                "加减分(±10)", "总分", "排名", "评定等级", "备注",
+                "加减分(±10)", "总分", "排名", "评定等级",
             ]
         else:
             headers = [
                 "姓名", "部门", "组/中心", "岗级",
                 "工作积分得分(/50)", "经济指标得分(/20)",
                 "综合评价得分(/30)", "加减分(±10)",
-                "总分", "排名", "评定等级", "备注",
+                "总分", "排名", "评定等级",
             ]
 
         ws.append(headers)
 
         for r in items:
-            remark = "混合角色" if r.is_mixed_role else ""
             if assess_type == ASSESS_TYPE_MANAGER:
                 row = [
                     r.employee_name, r.department, r.group_name, r.grade,
                     float(r.work_score), float(r.economic_score),
                     float(r.key_task_score), float(r.eval_score),
                     float(r.bonus_score), float(r.total_score),
-                    r.ranking, r.rating or "", remark,
+                    r.ranking, r.rating or "",
                 ]
             elif assess_type == ASSESS_TYPE_PUBLIC:
                 row = [
                     r.employee_name, r.department, r.group_name, r.grade,
                     float(r.work_goal_score), float(r.eval_score),
                     float(r.bonus_score), float(r.total_score),
-                    r.ranking, r.rating or "", remark,
+                    r.ranking, r.rating or "",
                 ]
             else:
                 row = [
                     r.employee_name, r.department, r.group_name, r.grade,
                     float(r.work_score), float(r.economic_score),
                     float(r.eval_score), float(r.bonus_score),
-                    float(r.total_score), r.ranking, r.rating or "", remark,
+                    float(r.total_score), r.ranking, r.rating or "",
                 ]
             ws.append(row)
 
@@ -302,7 +301,7 @@ async def export_all_reports(
         "姓名", "部门", "组/中心", "岗级", "考核类型",
         "工作积分得分", "经济指标得分", "重点任务得分",
         "工作目标完成度得分", "综合评价得分", "加减分",
-        "总分", "排名", "评定等级", "混合角色", "领导评语",
+        "总分", "排名", "评定等级", "领导评语",
     ])
     for r in all_results:
         ws4.append([
@@ -311,7 +310,6 @@ async def export_all_reports(
             float(r.key_task_score), float(r.work_goal_score),
             float(r.eval_score), float(r.bonus_score),
             float(r.total_score), r.ranking, r.rating or "",
-            "是" if r.is_mixed_role else "",
             r.leader_comment or "",
         ])
 

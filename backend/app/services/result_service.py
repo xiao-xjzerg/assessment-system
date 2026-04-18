@@ -7,7 +7,6 @@
 - 产品研发人员（满分110）：工作积分(0~50) + 经济指标(0~20) + 综合评价(0~30) + 加减分(±10)
 
 排名规则：同部门、同考核类型内按总分降序，同分时按工作积分降序、经济指标降序
-混合角色：最终总分 = 身份A总分 × 50% + 身份B总分 × 50%
 """
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
@@ -32,7 +31,7 @@ ZERO = D("0")
 async def calculate_final_results(db: AsyncSession, cycle_id: int) -> list[FinalResult]:
     """
     计算所有员工的最终考核成绩。
-    流程：清旧数据 → 收集各维度得分 → 计算总分 → 混合角色合并 → 排名
+    流程：清旧数据 → 收集各维度得分 → 计算总分 → 排名
     """
     # 1. 清除旧数据
     await db.execute(delete(FinalResult).where(FinalResult.cycle_id == cycle_id))
@@ -66,30 +65,6 @@ async def calculate_final_results(db: AsyncSession, cycle_id: int) -> list[Final
             bonus_sums, key_task_scores, economic_scores,
             emp.assess_type,
         )
-
-        # 混合角色处理
-        if emp.assess_type_secondary:
-            result.is_mixed_role = True
-            result.secondary_assess_type = emp.assess_type_secondary
-
-            # 计算第二身份得分
-            secondary_scores = _calc_dimension_scores(
-                emp, cycle_id,
-                score_summaries, eval_summaries, work_goal_scores,
-                bonus_sums, key_task_scores, economic_scores,
-                emp.assess_type_secondary,
-            )
-            result.secondary_work_score = secondary_scores["work_score"]
-            result.secondary_economic_score = secondary_scores["economic_score"]
-            result.secondary_key_task_score = secondary_scores["key_task_score"]
-            result.secondary_eval_score = secondary_scores["eval_score"]
-            result.secondary_bonus_score = secondary_scores["bonus_score"]
-            result.secondary_total_score = secondary_scores["total_score"]
-
-            # 混合角色最终总分 = 身份A × 50% + 身份B × 50%
-            result.total_score = (
-                (result.total_score + result.secondary_total_score) * D("0.5")
-            ).quantize(D("0.01"), rounding=ROUND_HALF_UP)
 
         db.add(result)
         results.append(result)
@@ -136,7 +111,6 @@ def _build_final_result(
         group_name=emp.group_name or "",
         grade=emp.grade or "",
         assess_type=assess_type,
-        is_mixed_role=False,
         work_score=scores["work_score"],
         work_score_max=work_max,
         economic_score=scores["economic_score"],
@@ -221,7 +195,6 @@ async def _calculate_rankings(results: list[FinalResult]):
     """
     排名规则：同部门、同考核类型内按总分降序。
     同分时按工作积分降序、经济指标降序。
-    混合角色按主要身份(assess_type)归入对应排名。
     """
     # 按部门+考核类型分组
     groups: dict[str, list[FinalResult]] = {}
