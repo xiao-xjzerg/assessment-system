@@ -1,13 +1,10 @@
 /**
- * 应用路由表（批次 3：路由骨架 + 登录 + 修改密码）
+ * 应用路由表
  *
- * 本文件定义“受保护区”（BasicLayout 内部）的菜单路由。
+ * 本文件定义”受保护区”（BasicLayout 内部）的菜单路由。
  * 每条路由可选 roles 控制可见性 —— 若缺省则对所有登录用户可见。
- * 大部分业务页面在后续批次实现，现在先用 Placeholder 占位，
- * 既让路由能命中，也让菜单生成逻辑一次到位。
  */
 import type { ReactNode } from 'react';
-import { Result } from 'antd';
 import {
   DashboardOutlined,
   TeamOutlined,
@@ -25,19 +22,20 @@ import DashboardPage from '@/pages/dashboard';
 import EmployeePage from '@/pages/employee';
 import ParameterPage from '@/pages/parameter';
 import ProjectPage from '@/pages/project';
+import ParticipationPage from '@/pages/participation';
+import PublicScorePage from '@/pages/publicScore';
+import ScorePage from '@/pages/score';
+import EconomicPage from '@/pages/economic';
+import RelationsPage from '@/pages/evaluation/Relations';
+import MyTasksPage from '@/pages/evaluation/MyTasks';
+import EvalSummaryPage from '@/pages/evaluation/Summary';
+import WorkGoalPage from '@/pages/evaluation/WorkGoal';
+import BonusPage from '@/pages/bonus';
+import ResultPage from '@/pages/result';
+import ProfilePage from '@/pages/profile';
 import ThemePreviewPage from '@/pages/system/themePreview';
 import { ROLE, type Role } from '@/utils/constants';
 
-/** 通用占位页 —— 将在对应批次替换为真实页面 */
-function Placeholder({ title, batch }: { title: string; batch: string }) {
-  return (
-    <Result
-      status="info"
-      title={title}
-      subTitle={`该页面将在 ${batch} 实现，当前仅路由占位。`}
-    />
-  );
-}
 
 export interface AppRouteNode {
   /** 相对于 BasicLayout 的路径段（不以 / 开头） */
@@ -117,12 +115,12 @@ export const appRoutes: AppRouteNode[] = [
         path: 'participation',
         title: '项目参与度',
         roles: [ROLE.ADMIN, ROLE.PM],
-        element: <Placeholder title="项目参与度" batch="批次 6" />,
+        element: <ParticipationPage />,
       },
       {
         path: 'public-score',
         title: '公共积分申报',
-        element: <Placeholder title="公共积分申报" batch="批次 6" />,
+        element: <PublicScorePage />,
       },
     ],
   },
@@ -136,13 +134,13 @@ export const appRoutes: AppRouteNode[] = [
         path: 'score',
         title: '积分统计',
         roles: [ROLE.ADMIN],
-        element: <Placeholder title="积分统计" batch="批次 7" />,
+        element: <ScorePage />,
       },
       {
         path: 'economic',
         title: '经济指标',
         roles: [ROLE.ADMIN],
-        element: <Placeholder title="经济指标" batch="批次 7" />,
+        element: <EconomicPage />,
       },
     ],
   },
@@ -155,24 +153,24 @@ export const appRoutes: AppRouteNode[] = [
         path: 'relations',
         title: '互评关系',
         roles: [ROLE.ADMIN],
-        element: <Placeholder title="互评关系" batch="批次 8" />,
+        element: <RelationsPage />,
       },
       {
         path: 'my-tasks',
         title: '我的评价',
-        element: <Placeholder title="我的评价" batch="批次 8" />,
+        element: <MyTasksPage />,
       },
       {
         path: 'summary',
         title: '评分汇总',
         roles: [ROLE.ADMIN],
-        element: <Placeholder title="评分汇总" batch="批次 8" />,
+        element: <EvalSummaryPage />,
       },
       {
         path: 'work-goal',
         title: '工作目标',
-        roles: [ROLE.ADMIN, ROLE.PM],
-        element: <Placeholder title="工作目标完成度" batch="批次 8" />,
+        roles: [ROLE.ADMIN, ROLE.LEADER],
+        element: <WorkGoalPage />,
       },
     ],
   },
@@ -186,13 +184,13 @@ export const appRoutes: AppRouteNode[] = [
         path: 'bonus',
         title: '加减分 / 重点任务',
         roles: [ROLE.ADMIN],
-        element: <Placeholder title="加减分 / 重点任务" batch="批次 9" />,
+        element: <BonusPage />,
       },
       {
         path: 'final',
         title: '最终成绩',
         roles: [ROLE.ADMIN, ROLE.LEADER],
-        element: <Placeholder title="最终成绩" batch="批次 9" />,
+        element: <ResultPage />,
       },
     ],
   },
@@ -218,7 +216,7 @@ export const appRoutes: AppRouteNode[] = [
       {
         path: 'me',
         title: '个人信息',
-        element: <Placeholder title="个人信息" batch="批次 10" />,
+        element: <ProfilePage />,
       },
       {
         path: 'change-password',

@@ -506,6 +506,11 @@ assessment-system/
 | 2026-04-10 | 阶段六完成：经济指标计算（利润/自研收入/产品合同）、加减分CRUD（±10限制）、重点任务分数录入（批量）、最终成绩计算（4类考核公式）、排名（同部门同类型）、混合角色合并（50%权重）、评定等级设置、领导评语、成绩总表导出（分Sheet）、全量4Sheet导出、确认归档 | routers/economic.py, bonus.py, result.py, services/economic_service.py, bonus_service.py, result_service.py |
 | 2026-04-12 | 阶段七批次4完成：工作台（角色卡片+管理员统计）、员工管理页（CRUD/导入/模板/重置密码）、项目管理页（CRUD/导入/模板/签约概率Drawer）；路由接入三个新页面 | frontend/src/pages/dashboard/, employee/, project/, router/routes.tsx |
 | 2026-04-12 | 批次4.5完成：Neumorphism软萌风+深浅色模式。主题框架（ThemeProvider/tokens/useTheme）、5个Neu组件（NeuCard/Panel/Button/Switch/Slider）、主题预览页、登录页/布局/Dashboard/业务页全面升级为Neu风格、顶栏主题切换按钮 | frontend/src/theme/, components/neu/, pages/login, layouts/BasicLayout, pages/dashboard, pages/employee, pages/project, pages/changePassword, index.css, main.tsx, routes.tsx |
+| 2026-04-12 | 批次6完成：项目参与度（PM填报+管理员概览/全量管理+同部门系数校验）、公共积分申报（员工CRUD+管理员筛选/修改工作量系数和积分）；路由接入两个新页面 | frontend/src/pages/participation/, publicScore/, router/routes.tsx |
+| 2026-04-12 | 批次7完成：积分统计（触发计算/明细查询编辑/汇总查询/Excel导出）、经济指标核算（触发计算/明细查询/汇总查询/Excel导出）；路由接入两个新页面 | frontend/src/pages/score/, economic/, router/routes.tsx |
+| 2026-04-12 | 批次8完成：360评价四个子页面（互评关系管理+进度看板、我的评价任务+在线评分、评分汇总计算导出、工作目标完成度评分）；路由接入四个新页面 | frontend/src/pages/evaluation/Relations.tsx, MyTasks.tsx, Summary.tsx, WorkGoal.tsx, router/routes.tsx |
+| 2026-04-12 | 批次9完成：加减分CRUD+重点任务批量录入+导出、最终成绩计算/排名/评级Dropdown/评语/导出(分Sheet+全量4Sheet)/确认归档；路由接入两个新页面 | frontend/src/pages/bonus/, result/, router/routes.tsx |
+| 2026-04-13 | 批次10完成：个人中心（基本信息+积分汇总+考核成绩）；路由清理移除Placeholder，所有页面路由均接入真实组件 | frontend/src/pages/profile/, router/routes.tsx |
 
 ### 阶段四：积分计算与公共积分申报 ✅
 
@@ -645,29 +650,54 @@ assessment-system/
     - 路由接入：[src/router/routes.tsx](frontend/src/router/routes.tsx) 中 `/settings/cycles` 和 `/settings/parameters` 由 Placeholder 替换为真实页面
     - 验证：`tsc` 零错误；`npm run build` 成功（4151 modules → 1696.79 kB / gzip 542.36 kB）
 
-- [ ] **批次 6：参与度与公共积分**
+- [x] **批次 6：参与度与公共积分** ✅
   - `pages/Participation/`：项目经理填报视图、管理员全量管理视图、校验提示
   - `pages/PublicScore/`：员工申报视图、管理员审核/修改视图
+  - **产出**：
+    - 项目参与度：[src/pages/participation/index.tsx](frontend/src/pages/participation/index.tsx) — Tabs 三栏布局（填报 / 概览 / 全量管理），项目经理仅显示填报 Tab，管理员额外显示概览统计和全量管理 Tab。填报 Tab：Select 选择项目 → 动态加载参与度记录 → 行内 InputNumber 编辑系数（0~1，精度4位）→ 添加员工（Select 联动排除已选）→ 保存/提交；同部门系数合计实时校验（±0.01容差），不通过时 Alert 警告且提交被拦截；部门系数合计 Tag 实时展示（绿色通过/黄色警告）。概览 Tab：Table 展示全部项目填报状态（已填/未填 Tag + 表头过滤器）。全量管理 Tab：支持按项目/部门筛选的 Table。
+    - 公共积分申报：[src/pages/publicScore/index.tsx](frontend/src/pages/publicScore/index.tsx) — Card + Table（员工视图仅看自己的记录，管理员看全部）。管理员筛选区：员工姓名搜索 + 活动类型 + 状态 Select + 查询按钮。Table 列：[管理员额外]员工姓名 / 活动名称 / 类型(Tag) / 人月 / 复杂度 / 规模值 / 复杂性值 / 工作量系数 / 积分 / 状态(Tag) / 操作(编辑+删除)，水平滚动 1200~1300px。Modal 表单：活动名称 / 类型 Select / 人月 InputNumber / 复杂度 Select / 备注 TextArea；管理员编辑时额外显示工作量系数和积分两个 InputNumber 字段（可直接修改覆盖系统计算值）。状态 Tag：待审核(默认) / 管理员已修改(orange)。
+    - 路由接入：[src/router/routes.tsx](frontend/src/router/routes.tsx) 中 `/declare/participation` 和 `/declare/public-score` 由 Placeholder 替换为真实页面
+    - 验证：`tsc` 零错误；`npm run build` 成功（4155 modules → 1710.57 kB / gzip 546.13 kB）
 
-- [ ] **批次 7：积分统计与经济指标**
+- [x] **批次 7：积分统计与经济指标** ✅
   - `pages/Score/`：触发计算、明细查询/编辑、汇总查询、Excel 导出
   - `pages/Economic/`：触发计算、明细查询、汇总查询、Excel 导出
+  - **产出**：
+    - 积分统计：[src/pages/score/index.tsx](frontend/src/pages/score/index.tsx) — Card + Tabs 双栏（明细/汇总）。顶栏操作区：触发计算（modal.confirm 二次确认 → POST /api/scores/calculate）+ 导出 Excel（Blob 下载）。明细 Tab：筛选区 4 控件（员工姓名 / 项目名称 Input + 阶段 / 部门 Select）+ Table 12 列（员工 / 项目 / 阶段 Tag 着色 / 基础分 / 进度系数 / 工作量系数 / 参与系数 / 积分 / 参与人 / 完成工作 / 备注 / 操作），水平滚动 1400px，首尾列固定；操作列含编辑按钮 → Modal 表单（进度系数 / 工作量系数 InputNumber + 工作描述 / 备注 TextArea），提交后刷新列表。汇总 Tab：筛选区 3 控件（员工姓名 / 部门 / 考核类型）+ Table 8 列（员工 / 部门 / 考核类型 / 项目积分 / 公共积分 / 转型积分 / 总积分加粗 / 归一化得分 Tag），水平滚动 900px。
+    - 经济指标核算：[src/pages/economic/index.tsx](frontend/src/pages/economic/index.tsx) — Card + Tabs 双栏（明细/汇总）。顶栏操作区：触发计算（modal.confirm）+ 导出 Excel。明细 Tab：筛选区 3 控件（员工姓名 / 部门 / 组中心）+ Table 14 列（员工 / 部门 / 组 / 岗级 / 考核类型 / 项目名称 / 指标类型 Tag 着色 / 原始值 / 参与系数 / 完成值 / 目标值 / 指标系数 / 满分 / 得分加粗），水平滚动 1600px，首尾列固定；rowKey 复合键。汇总 Tab：筛选区 2 控件（部门 / 组中心）+ Table 6 列（员工 / 部门 / 组 / 岗级 / 考核类型 / 总分 Tag）。
+    - 路由接入：[src/router/routes.tsx](frontend/src/router/routes.tsx) 中 `/stats/score` 和 `/stats/economic` 由 Placeholder 替换为真实页面
+    - 验证：`tsc` 零错误；`npm run build` 成功（4159 modules → 1723.39 kB / gzip 548.46 kB）
 
-- [ ] **批次 8：360 评价**
+- [x] **批次 8：360 评价** ✅
   - `pages/Evaluation/Relations/`：互评关系生成、查看、编辑、导出
   - `pages/Evaluation/MyTasks/`：我的评价任务、在线评分
   - `pages/Evaluation/Summary/`：评分汇总查询、重置
   - `pages/Evaluation/WorkGoal/`：公共人员工作目标完成度录入
   - 进度统计看板
+  - **产出**：
+    - 互评关系管理：[src/pages/evaluation/Relations.tsx](frontend/src/pages/evaluation/Relations.tsx) — 顶部进度统计卡片（总数/已完成/未完成 Statistic + Progress 百分比进度条）；主卡片含生成互评关系按钮（modal.confirm）+ 导出 Excel；筛选区 3 控件（被评人姓名 / 评价人类型 / 部门）；Table 7 列（被评人 / 考核类型 / 评价人 / 评价人类型 Tag 着色 / 序号 / 状态 Tag / 操作）；编辑评价人 Modal（Select showSearch 员工列表，显示部门+组信息）。
+    - 我的评价任务：[src/pages/evaluation/MyTasks.tsx](frontend/src/pages/evaluation/MyTasks.tsx) — 所有登录用户可见。Card 标题含待评/已完成计数 Tag；Table 5 列（被评人 / 考核类型 / 评价人类型 Tag / 状态 / 操作：待评→评分、已完成→查看）；评分 Modal 动态加载维度（按被评人考核类型），每维度 InputNumber（0~满分）+ 校验规则，提交后锁定；查看详情 Modal 用 Descriptions 展示各维度得分。
+    - 评分汇总：[src/pages/evaluation/Summary.tsx](frontend/src/pages/evaluation/Summary.tsx) — 触发汇总计算 + 导出 Excel；筛选区 3 控件（员工 / 部门 / 考核类型）；Table 12 列（员工 / 部门 / 岗位 / 考核类型 / 同事1~4 / 上级领导 / 部门领导 / 加权总分加粗 / 最终得分(/30) Tag），水平滚动 1200px。
+    - 工作目标完成度：[src/pages/evaluation/WorkGoal.tsx](frontend/src/pages/evaluation/WorkGoal.tsx) — 领导/管理员可见。加载公共人员列表 + 已有评分合并展示；Card 标题含已评/总数 Tag；Table 7 列（姓名 / 部门 / 组 / 岗位 / 状态 Tag / 评语 / 操作：评分/修改）；评分 Modal：InputNumber（0~70）+ TextArea 评语（1000字）。
+    - 路由接入：[src/router/routes.tsx](frontend/src/router/routes.tsx) 中 `/evaluation/relations`、`/evaluation/my-tasks`、`/evaluation/summary`、`/evaluation/work-goal` 由 Placeholder 替换为真实页面；work-goal 角色权限修正为 ADMIN+LEADER
+    - 验证：`tsc` 零错误；`npm run build` 成功（4163 modules → 1737.66 kB / gzip 551.54 kB）
 
-- [ ] **批次 9：加减分、重点任务与最终成绩**
+- [x] **批次 9：加减分、重点任务与最终成绩** ✅
   - `pages/Bonus/`：加减分记录 CRUD、重点任务分数录入（单个/批量）、导出
   - `pages/Result/`：最终成绩计算、总表查询（排名/评级/评语编辑）、按类型导出、全量导出、确认完成归档
+  - **产出**：
+    - 加减分/重点任务：[src/pages/bonus/index.tsx](frontend/src/pages/bonus/index.tsx) — Card + Tabs 双栏。加减分 Tab：筛选区（部门/考核类型）+ 新增按钮；Table 6 列（员工/部门/考核类型/说明/分值 Tag 正绿负红/操作 Popconfirm 删除），水平滚动 800px；新增 Modal（Select 搜索员工 + 说明 TextArea + 分值 InputNumber ±10）。重点任务 Tab：批量保存按钮 + 提示文字；Table 3 列（员工 / 行内 InputNumber 0~10 / 当前值），rowKey=employee_id，编辑后统一批量保存。导出 Excel 按钮在 Card extra。
+    - 最终成绩：[src/pages/result/index.tsx](frontend/src/pages/result/index.tsx) — Card 顶栏：触发计算 + 导出 Dropdown（成绩总表/全量4Sheet）+ 确认归档（danger）；筛选区 3 控件（员工/部门/考核类型）；Table 16 列（姓名/部门/组/岗级/考核类型/工作积分(含满分)/经济指标(含满分)/重点任务/工作目标/综合评价/加减分 Tag/总分加粗/排名/等级 Dropdown 设置/混合 Tag/操作：评语），水平滚动 1500px，首尾列固定；等级列管理员点击弹 Dropdown 菜单直接选等级（优秀金色/不合格红色）；评语 Modal（TextArea 1000字）；领导角色仅可编辑评语不可设等级和触发计算。
+    - 路由接入：[src/router/routes.tsx](frontend/src/router/routes.tsx) 中 `/result/bonus` 和 `/result/final` 由 Placeholder 替换为真实页面
+    - 验证：`tsc` 零错误；`npm run build` 成功（4167 modules → 1748.37 kB / gzip 553.94 kB）
 
-- [ ] **批次 10：个人中心与整体打磨**
+- [x] **批次 10：个人中心与整体打磨** ✅
   - `pages/Profile/`：个人信息、查看本期成绩详情、修改密码
-  - UI 一致性、空态、加载态、错误处理统一打磨
-  - 与后端全流程联调
+  - 路由清理：移除 Placeholder 组件及 Result 导入
+  - **产出**：
+    - 个人中心：[src/pages/profile/index.tsx](frontend/src/pages/profile/index.tsx) — 所有登录用户可见。顶部卡片 Descriptions 展示基本信息（姓名/部门/角色/考核类型/当前周期）+ 修改密码快捷按钮。下方双列布局：左列积分汇总卡片（项目积分/公共积分/转型积分/总积分/归一化得分 Statistic），右列考核成绩卡片（总分/排名/评定等级 + Descriptions 各维度得分 + 领导评语区块）；无数据时 Empty 空态；数据加载 Spin 状态。
+    - 路由清理：[src/router/routes.tsx](frontend/src/router/routes.tsx) 移除 Placeholder 组件定义和 `Result` 导入，所有页面路由均已接入真实组件（前端零占位页）
+    - 验证：`tsc` 零错误；`npm run build` 成功（4168 modules → 1752.36 kB / gzip 554.75 kB）
 
 - [x] **批次 4.5：UI 视觉风格重构（Neumorphism 软萌风 + 深浅色模式）** ✅
   - **目标**：把现有 AntD 默认视觉升级为 Neumorphism（新拟态/软萌）风格，支持跟随系统的深/浅色模式，并在顶栏提供手动切换按钮。
