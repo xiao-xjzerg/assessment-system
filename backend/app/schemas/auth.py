@@ -14,6 +14,7 @@ class LoginResponse(BaseModel):
     role: str
     assess_type: str
     department: str
+    is_pm: bool = False  # 是否在当前周期担任项目经理（派生角色）
 
 
 class ChangePasswordRequest(BaseModel):

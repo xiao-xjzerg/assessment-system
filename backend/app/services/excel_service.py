@@ -14,7 +14,6 @@ EMPLOYEE_COLUMNS = [
     ("联系方式", "phone"),
     ("角色", "role"),
     ("考核类型", "assess_type"),
-    ("第二考核类型", "assess_type_secondary"),
 ]
 
 # ---- 项目 Excel 列映射 ----
@@ -102,6 +101,7 @@ def generate_template(columns: list[tuple[str, str]], sample_data: list[dict] | 
 
 
 def generate_employee_template() -> bytes:
+    # 角色仅允许 管理员/普通员工/领导；留空则默认为"普通员工"
     sample = [
         {
             "name": "张三",
@@ -110,9 +110,8 @@ def generate_employee_template() -> bytes:
             "position": "项目经理",
             "grade": "T5",
             "phone": "13800138001",
-            "role": "项目经理",
+            "role": "普通员工",
             "assess_type": "业务人员",
-            "assess_type_secondary": "",
         }
     ]
     return generate_template(EMPLOYEE_COLUMNS, sample)

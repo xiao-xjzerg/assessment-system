@@ -14,6 +14,11 @@ export const ROLE = {
 export type Role = (typeof ROLE)[keyof typeof ROLE];
 
 export const ALL_ROLES: Role[] = [ROLE.ADMIN, ROLE.PM, ROLE.EMPLOYEE, ROLE.LEADER];
+/**
+ * 员工信息表中允许出现的角色（下拉选项 / 筛选器 / 导入校验）
+ * 项目经理不再是员工表角色，由项目一览表的 pm_id 动态派生。
+ */
+export const EMPLOYEE_ROLES: Role[] = [ROLE.ADMIN, ROLE.EMPLOYEE, ROLE.LEADER];
 
 // ==================== 考核类型 ====================
 export const ASSESS_TYPE = {

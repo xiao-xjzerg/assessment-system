@@ -65,8 +65,8 @@ async def list_by_project(
     """获取某项目的参与度记录"""
     cycle = await _get_active_cycle(db)
 
-    # 项目经理只能查看自己负责的项目
-    if current_user.role == ROLE_PM:
+    # 非管理员（即派生 PM）只能查看自己负责的项目
+    if current_user.role != ROLE_ADMIN:
         proj_result = await db.execute(
             select(Project).where(Project.id == project_id)
         )
@@ -106,8 +106,8 @@ async def save(
     """保存或提交项目参与度"""
     cycle = await _get_active_cycle(db)
 
-    # 项目经理只能填自己负责的项目
-    if current_user.role == ROLE_PM:
+    # 非管理员（即派生 PM）只能填自己负责的项目
+    if current_user.role != ROLE_ADMIN:
         proj_result = await db.execute(
             select(Project).where(Project.id == body.project_id)
         )

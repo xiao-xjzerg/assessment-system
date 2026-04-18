@@ -69,5 +69,6 @@ class ProjectOut(BaseModel):
     project_type_coeff: Decimal = Decimal("1")
     workload_coeff: Decimal = Decimal("0")
     signing_probability: Decimal = Decimal("1")
+    pm_missing: bool = False  # 项目经理姓名存在但未能匹配到员工档案（缺失或同名冲突）
 
     model_config = {"from_attributes": True}

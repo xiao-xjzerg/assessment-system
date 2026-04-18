@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import JWT_SECRET_KEY, JWT_ALGORITHM, JWT_ACCESS_TOKEN_EXPIRE_HOURS
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, is_project_manager
 from app.models.cycle import Cycle
 from app.models.employee import Employee
 from app.schemas.auth import LoginRequest, LoginResponse, ChangePasswordRequest
@@ -57,6 +57,7 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
         )
 
     token = create_access_token(user.id)
+    is_pm = await is_project_manager(db, user.id)
     data = LoginResponse(
         token=token,
         user_id=user.id,
@@ -64,6 +65,7 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
         role=user.role,
         assess_type=user.assess_type,
         department=user.department,
+        is_pm=is_pm,
     )
     return ResponseModel(data=data.model_dump())
 

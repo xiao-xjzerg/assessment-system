@@ -31,6 +31,8 @@ export interface LoginResponse {
   role: string;
   assess_type: string;
   department: string;
+  /** 是否在当前周期担任项目经理（派生角色，基于项目一览表 pm_id） */
+  is_pm: boolean;
 }
 
 export interface ChangePasswordRequest {
@@ -68,11 +70,12 @@ export interface Employee {
   phone: string;
   role: string;
   assess_type: string;
-  assess_type_secondary: string | null;
   is_active: boolean;
   status: string | null;
   rating: string | null;
   leader_comment: string | null;
+  /** 同周期内是否存在同名员工（后端派生） */
+  is_duplicate_name?: boolean;
 }
 
 export interface EmployeeCreate {
@@ -84,7 +87,6 @@ export interface EmployeeCreate {
   phone: string;
   role: string;
   assess_type: string;
-  assess_type_secondary?: string | null;
 }
 
 export type EmployeeUpdate = Partial<EmployeeCreate> & {
@@ -136,6 +138,8 @@ export interface Project {
   project_type_coeff: number | string;
   workload_coeff: number | string;
   signing_probability: number | string;
+  /** 项目经理姓名存在但未能唯一匹配到员工（缺失或同名冲突） */
+  pm_missing?: boolean;
 }
 
 export interface ProjectCreate {
@@ -504,7 +508,6 @@ export interface FinalResult {
   group_name: string | null;
   grade: string | null;
   assess_type: string;
-  is_mixed_role: boolean;
   work_score: number | string;
   work_score_max: number | string;
   economic_score: number | string;
@@ -517,12 +520,5 @@ export interface FinalResult {
   ranking: number;
   rating: string | null;
   leader_comment: string | null;
-  secondary_assess_type: string | null;
-  secondary_work_score: number | string;
-  secondary_economic_score: number | string;
-  secondary_key_task_score: number | string;
-  secondary_eval_score: number | string;
-  secondary_bonus_score: number | string;
-  secondary_total_score: number | string;
   no_excellent_flag: boolean;
 }

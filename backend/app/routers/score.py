@@ -68,7 +68,7 @@ async def list_details(
             phase=phase,
             department=department,
         )
-    elif current_user.role == ROLE_PM:
+    elif current_user.is_pm:
         # 项目经理可以看自己负责项目的积分明细
         items = await get_score_details(
             db, cycle.id,

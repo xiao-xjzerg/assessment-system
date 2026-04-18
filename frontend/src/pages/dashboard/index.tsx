@@ -106,7 +106,7 @@ export default function DashboardPage() {
     );
   }
 
-  // ---- 按角色生成快捷入口 ----
+  // ---- 按角色生成快捷入口（项目经理由 is_pm 派生，可与员工/领导角色叠加） ----
   const quickLinks: QuickLink[] = [];
   if (user.role === ROLE.ADMIN) {
     quickLinks.push(
@@ -117,24 +117,30 @@ export default function DashboardPage() {
       { key: 'score', title: '积分统计', description: '触发计算、明细与汇总', to: '/stats/score', icon: <FormOutlined />, color: '#52c41a' },
       { key: 'result', title: '最终成绩', description: '查看排名、设定评级', to: '/result/final', icon: <TrophyOutlined />, color: '#eb2f96' },
     );
-  } else if (user.role === ROLE.PM) {
-    quickLinks.push(
-      { key: 'part', title: '项目参与度', description: '为我负责的项目填报参与度', to: '/declare/participation', icon: <FormOutlined />, color: '#5b8def' },
-      { key: 'public', title: '公共积分申报', description: '提交公共/转型活动申报', to: '/declare/public-score', icon: <FormOutlined />, color: '#13c2c2' },
-      { key: 'eval', title: '我的评价', description: '完成 360 互评任务', to: '/evaluation/my-tasks', icon: <SolutionOutlined />, color: '#722ed1' },
-    );
-  } else if (user.role === ROLE.LEADER) {
-    quickLinks.push(
-      { key: 'eval', title: '我的评价', description: '完成 360 互评任务', to: '/evaluation/my-tasks', icon: <SolutionOutlined />, color: '#5b8def' },
-      { key: 'wg', title: '工作目标完成度', description: '为公共人员打分', to: '/evaluation/work-goal', icon: <FormOutlined />, color: '#13c2c2' },
-      { key: 'final', title: '最终成绩', description: '查看部门成绩与评语', to: '/result/final', icon: <TrophyOutlined />, color: '#eb2f96' },
-    );
   } else {
-    quickLinks.push(
-      { key: 'public', title: '公共积分申报', description: '提交公共/转型活动申报', to: '/declare/public-score', icon: <FormOutlined />, color: '#5b8def' },
-      { key: 'eval', title: '我的评价', description: '完成 360 互评任务', to: '/evaluation/my-tasks', icon: <SolutionOutlined />, color: '#13c2c2' },
-      { key: 'me', title: '个人中心', description: '查看本期个人成绩详情', to: '/profile/me', icon: <TrophyOutlined />, color: '#722ed1' },
-    );
+    if (user.is_pm) {
+      quickLinks.push({
+        key: 'part',
+        title: '项目参与度',
+        description: '为我负责的项目填报参与度',
+        to: '/declare/participation',
+        icon: <FormOutlined />,
+        color: '#5b8def',
+      });
+    }
+    if (user.role === ROLE.LEADER) {
+      quickLinks.push(
+        { key: 'eval', title: '我的评价', description: '完成 360 互评任务', to: '/evaluation/my-tasks', icon: <SolutionOutlined />, color: '#5b8def' },
+        { key: 'wg', title: '工作目标完成度', description: '为公共人员打分', to: '/evaluation/work-goal', icon: <FormOutlined />, color: '#13c2c2' },
+        { key: 'final', title: '最终成绩', description: '查看部门成绩与评语', to: '/result/final', icon: <TrophyOutlined />, color: '#eb2f96' },
+      );
+    } else {
+      quickLinks.push(
+        { key: 'public', title: '公共积分申报', description: '提交公共/转型活动申报', to: '/declare/public-score', icon: <FormOutlined />, color: '#13c2c2' },
+        { key: 'eval', title: '我的评价', description: '完成 360 互评任务', to: '/evaluation/my-tasks', icon: <SolutionOutlined />, color: '#722ed1' },
+        { key: 'me', title: '个人中心', description: '查看本期个人成绩详情', to: '/profile/me', icon: <TrophyOutlined />, color: '#eb2f96' },
+      );
+    }
   }
 
   return (

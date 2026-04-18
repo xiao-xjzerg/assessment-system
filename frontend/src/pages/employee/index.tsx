@@ -48,14 +48,13 @@ import type {
 import {
   ALL_ASSESS_TYPES,
   ALL_DEPARTMENTS,
-  ALL_ROLES,
+  EMPLOYEE_ROLES,
   DEFAULT_PAGE_SIZE,
   PAGE_SIZE_OPTIONS,
 } from '@/utils/constants';
 import { downloadBlob, extractFilename } from '@/utils/format';
 
-interface FormValues extends Omit<EmployeeCreate, 'assess_type_secondary'> {
-  assess_type_secondary?: string | null;
+interface FormValues extends EmployeeCreate {
   is_active?: boolean;
 }
 
@@ -125,7 +124,6 @@ export default function EmployeePage() {
       phone: row.phone,
       role: row.role,
       assess_type: row.assess_type,
-      assess_type_secondary: row.assess_type_secondary ?? undefined,
       is_active: row.is_active,
     });
     setFormOpen(true);
@@ -140,7 +138,6 @@ export default function EmployeePage() {
         group_name: values.group_name?.trim() || null,
         position: values.position?.trim() || null,
         grade: values.grade?.trim() || null,
-        assess_type_secondary: values.assess_type_secondary || null,
       };
       if (editing) {
         await employeeApi.update(editing.id, payload);
@@ -263,7 +260,23 @@ export default function EmployeePage() {
   // ---- 表格列 ----
   const columns: ColumnsType<Employee> = useMemo(
     () => [
-      { title: '姓名', dataIndex: 'name', width: 100, fixed: 'left' },
+      {
+        title: '姓名',
+        dataIndex: 'name',
+        width: 140,
+        fixed: 'left',
+        render: (v: string, row: Employee) =>
+          row.is_duplicate_name ? (
+            <Tooltip title="当前周期内存在同名员工，请修改姓名或岗级以区分，避免项目经理关联失败">
+              <Space direction="vertical" size={0}>
+                <span style={{ color: '#ff4d4f', fontWeight: 500 }}>{v}</span>
+                <span style={{ fontSize: 11, color: '#ff4d4f' }}>同名冲突</span>
+              </Space>
+            </Tooltip>
+          ) : (
+            v
+          ),
+      },
       { title: '手机号', dataIndex: 'phone', width: 130 },
       { title: '部门', dataIndex: 'department', width: 130 },
       {
@@ -289,14 +302,7 @@ export default function EmployeePage() {
         title: '考核类型',
         dataIndex: 'assess_type',
         width: 130,
-        render: (v: string, row) => (
-          <Space size={4}>
-            <Tag color="purple">{v}</Tag>
-            {row.assess_type_secondary && (
-              <Tag color="magenta">{row.assess_type_secondary}</Tag>
-            )}
-          </Space>
-        ),
+        render: (v: string) => <Tag color="purple">{v}</Tag>,
       },
       {
         title: '状态',
@@ -420,7 +426,7 @@ export default function EmployeePage() {
             allowClear
             style={{ width: 140 }}
             value={filter.role}
-            options={ALL_ROLES.map((r) => ({ label: r, value: r }))}
+            options={EMPLOYEE_ROLES.map((r) => ({ label: r, value: r }))}
             onChange={(v) => {
               setFilter((f) => ({ ...f, role: v }));
               setPage(1);
@@ -560,7 +566,7 @@ export default function EmployeePage() {
             >
               <Select
                 placeholder="角色"
-                options={ALL_ROLES.map((r) => ({ label: r, value: r }))}
+                options={EMPLOYEE_ROLES.map((r) => ({ label: r, value: r }))}
               />
             </Form.Item>
             <Form.Item
@@ -575,17 +581,6 @@ export default function EmployeePage() {
               />
             </Form.Item>
           </Space.Compact>
-
-          <Form.Item
-            label="第二考核类型（混合角色，可选）"
-            name="assess_type_secondary"
-          >
-            <Select
-              placeholder="如同时具备两种身份请填写"
-              allowClear
-              options={ALL_ASSESS_TYPES.map((a) => ({ label: a, value: a }))}
-            />
-          </Form.Item>
 
           {editing && (
             <Form.Item label="账号状态" name="is_active" valuePropName="checked">

@@ -87,11 +87,16 @@ async def list_employees(
 ):
     """分页查询员工列表"""
     cycle = await _get_active_cycle(db)
-    items, total = await get_employees(
+    items, total, duplicate_names = await get_employees(
         db, cycle.id, page, page_size, search, department, group_name, role, assess_type
     )
+    out_items = []
+    for e in items:
+        model = EmployeeOut.model_validate(e)
+        model.is_duplicate_name = e.name in duplicate_names
+        out_items.append(model)
     data = PaginatedData[EmployeeOut](
-        items=[EmployeeOut.model_validate(e) for e in items],
+        items=out_items,
         total=total,
         page=page,
         page_size=page_size,
@@ -148,7 +153,6 @@ async def create_employee(
         password_hash=pwd_context.hash(password),
         role=body.role,
         assess_type=body.assess_type,
-        assess_type_secondary=body.assess_type_secondary,
     )
     db.add(emp)
     await db.flush()

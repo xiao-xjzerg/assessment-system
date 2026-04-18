@@ -88,7 +88,7 @@ assessment-system/
 │           ├── evaluation_service.py # 360评价：互评匹配、评分、汇总、工作目标完成度
 │           ├── economic_service.py # 经济指标计算（利润/自研收入/产品合同）
 │           ├── bonus_service.py   # 加减分CRUD、重点任务分数管理
-│           └── result_service.py  # 最终成绩计算、排名、混合角色合并
+│           └── result_service.py  # 最终成绩计算、排名
 ├── frontend/                       # 前端项目（待开发）
 │   └── src/
 │       ├── layouts/
@@ -162,7 +162,6 @@ assessment-system/
 | password_hash | String(256) | 密码哈希 |
 | role | String(20) | 角色：管理员/项目经理/普通员工/领导 |
 | assess_type | String(20) | 考核类型：基层管理人员/公共人员/业务人员/产品研发人员 |
-| assess_type_secondary | String(20) | 第二考核类型（混合角色） |
 | is_active | Boolean | 账号是否启用 |
 | rating | String(20) | 评定等级 |
 | leader_comment | String(1000) | 领导评语 |
@@ -348,7 +347,6 @@ assessment-system/
 | group_name | String(50) | 组/中心 |
 | grade | String(20) | 岗级 |
 | assess_type | String(20) | 考核类型 |
-| is_mixed_role | Boolean | 是否混合角色 |
 | work_score | Numeric(8,2) | 工作积分得分 |
 | work_score_max | Numeric(5,2) | 工作积分满分（30或50） |
 | economic_score | Numeric(8,2) | 经济指标得分 |
@@ -361,13 +359,6 @@ assessment-system/
 | ranking | Integer | 排名（同部门同类型内） |
 | rating | String(20) | 评定等级 |
 | leader_comment | String(1000) | 领导评语 |
-| secondary_assess_type | String(20) | 第二考核类型 |
-| secondary_work_score | Numeric(8,2) | 第二身份工作积分得分 |
-| secondary_economic_score | Numeric(8,2) | 第二身份经济指标得分 |
-| secondary_key_task_score | Numeric(5,2) | 第二身份重点任务得分 |
-| secondary_eval_score | Numeric(8,2) | 第二身份综合评价得分 |
-| secondary_bonus_score | Numeric(5,2) | 第二身份加减分 |
-| secondary_total_score | Numeric(8,2) | 第二身份总分 |
 | no_excellent_flag | Boolean | 不可评优标记（同年2次基本合格） |
 
 ### dept_targets（部门人均目标值）
@@ -481,7 +472,7 @@ assessment-system/
 3. **实施方式="产品+服务"**标识合同明确约定产品内容，用于产品化收入特殊规则
 4. **参与度系数**：同一项目内，实施交付部合计为1，产品研发部合计为1（某部门无人则为0）
 5. **公共活动积分上限**为该员工项目积分的15%，转型活动不设上限
-6. **混合角色**按两种身份分别计算后取50%权重合并
+6. **每位员工仅有一个考核类型**（基层管理人员/公共人员/业务人员/产品研发人员），不存在「混合角色」
 7. **排名**在同部门、同考核类型内进行
 8. **360评价匿名性**：评分详情API仅管理员和评价人本人可看，被评人不可查看具体评分来源
 9. **评分提交后锁定**：评分提交后不可修改，管理员可通过重置接口允许重新评分
@@ -503,7 +494,7 @@ assessment-system/
 | 2026-04-09 | 补全CLAUDE.md数据模型文档：eval_summaries/work_goal_scores/bonus_records/key_task_scores/final_results完整字段定义；eval_relations/eval_scores/score_details/score_summaries补充漏记字段 | CLAUDE.md |
 | 2026-04-09 | 阶段四完成：公共积分申报API（CRUD+自动计算规模值/复杂性值/工作量系数）、积分全量计算（售前/交付/公共/转型）、公共活动积分15%上限、积分明细与汇总生成、开方归一化得分、管理员编辑明细、Excel导出 | routers/public_score.py, score.py, services/public_score_service.py, score_service.py |
 | 2026-04-09 | 阶段五完成：互评关系自动匹配算法、互评关系管理API（生成/查看/编辑/导出）、在线评分API（提交/查看/重置）、评分汇总计算（加权/折算30分）、工作目标完成度评分（领导→公共人员）、评价进度统计 | routers/evaluation.py, services/evaluation_service.py, schemas/evaluation.py |
-| 2026-04-10 | 阶段六完成：经济指标计算（利润/自研收入/产品合同）、加减分CRUD（±10限制）、重点任务分数录入（批量）、最终成绩计算（4类考核公式）、排名（同部门同类型）、混合角色合并（50%权重）、评定等级设置、领导评语、成绩总表导出（分Sheet）、全量4Sheet导出、确认归档 | routers/economic.py, bonus.py, result.py, services/economic_service.py, bonus_service.py, result_service.py |
+| 2026-04-10 | 阶段六完成：经济指标计算（利润/自研收入/产品合同）、加减分CRUD（±10限制）、重点任务分数录入（批量）、最终成绩计算（4类考核公式）、排名（同部门同类型）、评定等级设置、领导评语、成绩总表导出（分Sheet）、全量4Sheet导出、确认归档 | routers/economic.py, bonus.py, result.py, services/economic_service.py, bonus_service.py, result_service.py |
 | 2026-04-12 | 阶段七批次4完成：工作台（角色卡片+管理员统计）、员工管理页（CRUD/导入/模板/重置密码）、项目管理页（CRUD/导入/模板/签约概率Drawer）；路由接入三个新页面 | frontend/src/pages/dashboard/, employee/, project/, router/routes.tsx |
 | 2026-04-12 | 批次4.5完成：Neumorphism软萌风+深浅色模式。主题框架（ThemeProvider/tokens/useTheme）、5个Neu组件（NeuCard/Panel/Button/Switch/Slider）、主题预览页、登录页/布局/Dashboard/业务页全面升级为Neu风格、顶栏主题切换按钮 | frontend/src/theme/, components/neu/, pages/login, layouts/BasicLayout, pages/dashboard, pages/employee, pages/project, pages/changePassword, index.css, main.tsx, routes.tsx |
 | 2026-04-12 | 批次6完成：项目参与度（PM填报+管理员概览/全量管理+同部门系数校验）、公共积分申报（员工CRUD+管理员筛选/修改工作量系数和积分）；路由接入两个新页面 | frontend/src/pages/participation/, publicScore/, router/routes.tsx |
@@ -511,6 +502,8 @@ assessment-system/
 | 2026-04-12 | 批次8完成：360评价四个子页面（互评关系管理+进度看板、我的评价任务+在线评分、评分汇总计算导出、工作目标完成度评分）；路由接入四个新页面 | frontend/src/pages/evaluation/Relations.tsx, MyTasks.tsx, Summary.tsx, WorkGoal.tsx, router/routes.tsx |
 | 2026-04-12 | 批次9完成：加减分CRUD+重点任务批量录入+导出、最终成绩计算/排名/评级Dropdown/评语/导出(分Sheet+全量4Sheet)/确认归档；路由接入两个新页面 | frontend/src/pages/bonus/, result/, router/routes.tsx |
 | 2026-04-13 | 批次10完成：个人中心（基本信息+积分汇总+考核成绩）；路由清理移除Placeholder，所有页面路由均接入真实组件 | frontend/src/pages/profile/, router/routes.tsx |
+| 2026-04-18 | 移除「混合角色」概念：每位员工仅有一个考核类型。删除 `employees.assess_type_secondary` 字段、`final_results` 表的 `is_mixed_role` 与全部 `secondary_*` 字段；移除 result_service 50% 合并分支与排名特殊处理；员工导入模板/前端表单不再支持「第二考核类型」；新增 alembic 迁移 `c8b2f4d91a07_remove_mixed_role_fields.py` | models/employee.py, models/result.py, schemas/employee.py, schemas/result.py, services/{employee,cycle,bonus,result,excel}_service.py, routers/{employee,result}.py, import_data.py, alembic/versions/c8b2f4d91a07_*.py, frontend/src/types/index.ts, frontend/src/pages/employee/index.tsx, frontend/src/pages/result/index.tsx |
+| 2026-04-18 | 「项目经理」改为派生角色（不再作为员工表角色）：① 员工表角色收窄为 管理员/普通员工/领导（新增 `EMPLOYEE_ROLES` 常量），导入时空角色默认 `普通员工`；② PM 权限从 `projects.pm_id` 动态派生 —— `get_current_user` 给 user 挂 `is_pm` 属性、`require_roles` 在允许 `项目经理` 时兼容 `is_pm=True`、登录响应 `LoginResponse` 新增 `is_pm` 字段、participation/score/economic 路由的 `ROLE_PM` 判断改为 `is_pm`；③ 项目导入的 `pm_name → pm_id` 解析去掉 `role==项目经理` 过滤，只在唯一匹配时写 `pm_id`，否则设 `pm_missing=True`（`ProjectOut` 新增该字段）；④ 员工同名检测：`get_employees` 额外返回 `duplicate_names` 集合，`EmployeeOut` 新增 `is_duplicate_name`；⑤ 前端：`EMPLOYEE_ROLES` 常量、`userStore.is_pm`、`filterRoutesByRole` 接受 `isPm` 参数、Dashboard 按 `is_pm` 条件渲染 PM 入口、员工管理页姓名列同名冲突标红、项目管理页 PM 列 `pm_missing` 时红字 + "缺少员工信息" 小字 Tooltip；⑥ 仅逻辑变更，不迁移历史数据 | backend/app/config.py, dependencies.py, schemas/{auth,employee,project}.py, services/{employee,project,excel}_service.py, routers/{auth,employee,project,participation,score,economic}.py, import_data.py, frontend/src/types/index.ts, utils/constants.ts, stores/userStore.ts, router/routes.tsx, layouts/BasicLayout.tsx, pages/{dashboard,employee,project}/index.tsx |
 
 ### 阶段四：积分计算与公共积分申报 ✅
 
@@ -563,7 +556,6 @@ assessment-system/
   - 业务人员：工作积分(50) + 经济指标(20) + 综合评价(30) + 加减分(±10)
   - 产品研发人员：工作积分(50) + 经济指标(20) + 综合评价(30) + 加减分(±10)
 - **排名**：同部门同考核类型内按总分降序，同分按工作积分→经济指标降序
-- **混合角色合并**：两种身份分别计算后取50%权重合并
 - **评定等级**：PUT /api/results/{id}/rating，管理员手动设置（优秀/合格/基本合格/不合格）
 - **领导评语**：PUT /api/results/{id}/comment，管理员/领导可编辑
 - **成绩总表导出**：GET /api/results/export，按考核类型分Sheet

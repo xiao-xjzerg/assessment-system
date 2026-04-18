@@ -52,7 +52,7 @@ async def list_details(
     # 权限过滤
     if current_user.role == ROLE_ADMIN or current_user.role == ROLE_LEADER:
         filtered = all_details
-    elif current_user.role == ROLE_PM:
+    elif current_user.is_pm:
         filtered = [d for d in all_details if d["employee_id"] == current_user.id]
     else:
         filtered = [d for d in all_details if d["employee_id"] == current_user.id]

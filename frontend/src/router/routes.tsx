@@ -229,23 +229,37 @@ export const appRoutes: AppRouteNode[] = [
 
 // ==================== 辅助函数 ====================
 
-/** 判断一条路由节点对指定角色是否可见 */
-export function isRouteVisible(node: AppRouteNode, role: string | undefined): boolean {
+/** 判断一条路由节点对指定用户是否可见。
+ *
+ * 规则：
+ *  - 未登录（无 role）：一律不可见；
+ *  - 路由未指定 roles：所有已登录用户可见；
+ *  - 路由指定 roles：用户 role 命中即可见；
+ *  - 若 roles 包含"项目经理"且用户 isPm 为 true，也视为命中（派生 PM 权限）。
+ */
+export function isRouteVisible(
+  node: AppRouteNode,
+  role: string | undefined,
+  isPm = false,
+): boolean {
   if (!role) return false;
   if (!node.roles || node.roles.length === 0) return true;
-  return node.roles.includes(role as Role);
+  if (node.roles.includes(role as Role)) return true;
+  if (isPm && node.roles.includes(ROLE.PM)) return true;
+  return false;
 }
 
-/** 按角色过滤一棵路由树（深拷贝过滤后的结构；会移除全部子节点都被过滤掉的分组） */
+/** 按用户角色+派生 PM 过滤一棵路由树 */
 export function filterRoutesByRole(
   nodes: AppRouteNode[],
   role: string | undefined,
+  isPm = false,
 ): AppRouteNode[] {
   const result: AppRouteNode[] = [];
   for (const node of nodes) {
-    if (!isRouteVisible(node, role)) continue;
+    if (!isRouteVisible(node, role, isPm)) continue;
     if (node.children && node.children.length > 0) {
-      const children = filterRoutesByRole(node.children, role);
+      const children = filterRoutesByRole(node.children, role, isPm);
       if (children.length === 0) continue;
       result.push({ ...node, children });
     } else {
@@ -266,14 +280,15 @@ export function joinPath(parent: string, segment: string): string {
 export function findFirstAccessibleRoute(
   nodes: AppRouteNode[],
   role: string | undefined,
+  isPm = false,
   parent = '',
 ): string | null {
   for (const node of nodes) {
     if (node.hideInMenu) continue;
-    if (!isRouteVisible(node, role)) continue;
+    if (!isRouteVisible(node, role, isPm)) continue;
     const full = joinPath(parent, node.path);
     if (node.children && node.children.length > 0) {
-      const found = findFirstAccessibleRoute(node.children, role, full);
+      const found = findFirstAccessibleRoute(node.children, role, isPm, full);
       if (found) return found;
     } else if (node.element) {
       return full;

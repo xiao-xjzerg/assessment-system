@@ -21,6 +21,7 @@ import {
   Modal,
   Popconfirm,
   Tag,
+  Tooltip,
   InputNumber,
   DatePicker,
   Drawer,
@@ -357,8 +358,21 @@ export default function ProjectPage() {
       {
         title: '项目经理',
         dataIndex: 'pm_name',
-        width: 110,
-        render: (v) => v || '-',
+        width: 140,
+        render: (v: string | null, row: Project) => {
+          if (!v) return '-';
+          if (row.pm_missing) {
+            return (
+              <Tooltip title="该姓名在员工信息表中不存在或存在同名冲突，无法赋予项目经理权限">
+                <Space direction="vertical" size={0}>
+                  <span style={{ color: '#ff4d4f', fontWeight: 500 }}>{v}</span>
+                  <span style={{ fontSize: 11, color: '#ff4d4f' }}>缺少员工信息</span>
+                </Space>
+              </Tooltip>
+            );
+          }
+          return v;
+        },
       },
       {
         title: '合同金额(万)',

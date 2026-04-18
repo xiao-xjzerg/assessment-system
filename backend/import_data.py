@@ -33,9 +33,10 @@ DEPT_MAP = {
     "产品中心": "产品研发部",
 }
 
-# 角色：系统仅支持 管理员 / 项目经理 / 普通员工 / 领导
+# 角色：员工表仅支持 管理员 / 普通员工 / 领导
+# "项目经理" 不再是员工表角色，由项目一览表的 pm_id 动态派生
 ROLE_MAP = {
-    "项目经理": "项目经理",
+    "项目经理": "普通员工",
     "管理人员": "管理员",
     "业务人员": "普通员工",
     "技术人员": "普通员工",
@@ -77,10 +78,6 @@ def map_employee_rows(rows: list[dict]) -> list[dict]:
             row["role"] = ROLE_MAP.get(row["role"], row["role"])
         if row.get("assess_type"):
             row["assess_type"] = ASSESS_TYPE_MAP.get(row["assess_type"], row["assess_type"])
-        if row.get("assess_type_secondary"):
-            row["assess_type_secondary"] = ASSESS_TYPE_MAP.get(
-                row["assess_type_secondary"], row["assess_type_secondary"]
-            )
     return rows
 
 

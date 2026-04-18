@@ -113,21 +113,23 @@ async def import_projects(
         all_errors.append(f"以下项目令号已存在：{', '.join(existing_codes)}")
         return {"success_count": 0, "errors": all_errors}
 
-    # 查找项目经理：按姓名匹配当前周期已导入的员工
+    # 查找项目经理：按姓名匹配当前周期已导入的员工。
+    # 项目经理不再依赖员工表的 role 字段；仅按姓名唯一匹配。
+    # 若姓名不存在或存在同名（无法唯一确定），pm_id 置空，
+    # 由前端在"项目管理"页以红色提示"缺少员工信息"。
     for row in valid_rows:
         pm_id = None
         pm_name_val = row.get("pm_name")
         if pm_name_val:
             pm_result = await db.execute(
-                select(Employee).where(
+                select(Employee.id).where(
                     Employee.cycle_id == cycle_id,
                     Employee.name == pm_name_val,
-                    Employee.role == "项目经理",
                 )
             )
-            pm = pm_result.scalar_one_or_none()
-            if pm:
-                pm_id = pm.id
+            matched_ids = [r[0] for r in pm_result.all()]
+            if len(matched_ids) == 1:
+                pm_id = matched_ids[0]
 
         proj = Project(
             cycle_id=cycle_id,

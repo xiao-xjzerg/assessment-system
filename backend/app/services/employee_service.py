@@ -7,8 +7,8 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import (
-    ALL_ROLES, ALL_ASSESS_TYPES, ALL_DEPARTMENTS,
-    DEFAULT_PASSWORD_SUFFIX_LENGTH,
+    EMPLOYEE_ROLES, ALL_ASSESS_TYPES, ALL_DEPARTMENTS,
+    ROLE_EMPLOYEE, DEFAULT_PASSWORD_SUFFIX_LENGTH,
 )
 from app.models.employee import Employee
 
@@ -23,9 +23,11 @@ def generate_default_password(phone: str) -> str:
 
 
 def validate_employee_row(row: dict, row_num: int) -> list[str]:
-    """校验单行员工数据，返回错误列表"""
+    """校验单行员工数据，返回错误列表。
+    注：角色若为空由调用方先补默认值"普通员工"再进入校验。
+    """
     errors = []
-    required = ["name", "department", "phone", "role", "assess_type"]
+    required = ["name", "department", "phone", "assess_type"]
     for field in required:
         if not row.get(field):
             errors.append(f"第{row_num}行：{field}不能为空")
@@ -35,8 +37,10 @@ def validate_employee_row(row: dict, row_num: int) -> list[str]:
         errors.append(f"第{row_num}行：手机号格式不正确（需11位数字）")
 
     role = row.get("role", "")
-    if role and role not in ALL_ROLES:
-        errors.append(f"第{row_num}行：角色值无效，应为 {'/'.join(ALL_ROLES)} 之一")
+    if role and role not in EMPLOYEE_ROLES:
+        errors.append(
+            f"第{row_num}行：角色值无效，应为 {'/'.join(EMPLOYEE_ROLES)} 之一"
+        )
 
     assess_type = row.get("assess_type", "")
     if assess_type and assess_type not in ALL_ASSESS_TYPES:
@@ -73,6 +77,9 @@ async def import_employees(
     # 先校验全部行
     phones_in_file = []
     for i, row in enumerate(rows, start=2):  # Excel 第2行开始是数据
+        # 角色字段为空时默认为"普通员工"
+        if not row.get("role"):
+            row["role"] = ROLE_EMPLOYEE
         errs = validate_employee_row(row, i)
         if errs:
             all_errors.extend(errs)
@@ -108,7 +115,6 @@ async def import_employees(
             password_hash=pwd_context.hash(password),
             role=row["role"],
             assess_type=row["assess_type"],
-            assess_type_secondary=row.get("assess_type_secondary"),
         )
         db.add(emp)
 
@@ -136,8 +142,11 @@ async def get_employees(
     group_name: Optional[str] = None,
     role: Optional[str] = None,
     assess_type: Optional[str] = None,
-) -> tuple[list[Employee], int]:
-    """分页查询员工列表"""
+) -> tuple[list[Employee], int, set[str]]:
+    """分页查询员工列表。
+
+    返回 (items, total, duplicate_names)，duplicate_names 为当前周期内姓名重复的集合。
+    """
     query = select(Employee).where(Employee.cycle_id == cycle_id)
 
     if search:
@@ -164,7 +173,16 @@ async def get_employees(
     query = query.order_by(Employee.id).offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(query)
     items = list(result.scalars().all())
-    return items, total
+
+    dup_result = await db.execute(
+        select(Employee.name)
+        .where(Employee.cycle_id == cycle_id)
+        .group_by(Employee.name)
+        .having(func.count(Employee.id) > 1)
+    )
+    duplicate_names = {row[0] for row in dup_result.all()}
+
+    return items, total, duplicate_names
 
 
 async def reset_password(db: AsyncSession, employee_id: int) -> str:
