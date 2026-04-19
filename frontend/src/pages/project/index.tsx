@@ -136,45 +136,51 @@ export default function ProjectPage() {
   }, [fetchList]);
 
   // ---- 表单：新增 / 编辑 ----
+  // 预填策略：Modal 使用 destroyOnClose，Form 每次打开时重新挂载并读取 initialValues。
+  // openCreate/openEdit 只负责切状态，不再手动调 form.setFieldsValue / resetFields。
   const openCreate = () => {
     setEditing(null);
-    form.resetFields();
-    form.setFieldsValue({
-      project_status: '进行中',
-      contract_amount: 0,
-      project_profit: 0,
-      self_dev_income: 0,
-      product_contract_amount: 0,
-      presale_progress: 0,
-      delivery_progress: 0,
-    });
     setFormOpen(true);
   };
 
   const openEdit = (row: Project) => {
     setEditing(row);
-    form.setFieldsValue({
-      project_code: row.project_code,
-      project_name: row.project_name,
-      project_type: row.project_type,
-      impl_method: row.impl_method ?? undefined,
-      department: row.department ?? undefined,
-      customer_name: row.customer_name ?? undefined,
-      date_range: [
-        row.start_date ? dayjs(row.start_date) : null,
-        row.end_date ? dayjs(row.end_date) : null,
-      ],
-      contract_amount: Number(row.contract_amount) || 0,
-      project_profit: Number(row.project_profit) || 0,
-      self_dev_income: Number(row.self_dev_income) || 0,
-      product_contract_amount: Number(row.product_contract_amount) || 0,
-      presale_progress: Number(row.presale_progress) || 0,
-      delivery_progress: Number(row.delivery_progress) || 0,
-      pm_name: row.pm_name ?? undefined,
-      project_status: row.project_status ?? '进行中',
-    });
     setFormOpen(true);
   };
+
+  const initialFormValues = useMemo<Partial<FormValues>>(() => {
+    if (!editing) {
+      return {
+        project_status: '进行中',
+        contract_amount: 0,
+        project_profit: 0,
+        self_dev_income: 0,
+        product_contract_amount: 0,
+        presale_progress: 0,
+        delivery_progress: 0,
+      };
+    }
+    return {
+      project_code: editing.project_code,
+      project_name: editing.project_name,
+      project_type: editing.project_type,
+      impl_method: editing.impl_method ?? undefined,
+      department: editing.department ?? undefined,
+      customer_name: editing.customer_name ?? undefined,
+      date_range: [
+        editing.start_date ? dayjs(editing.start_date) : null,
+        editing.end_date ? dayjs(editing.end_date) : null,
+      ],
+      contract_amount: Number(editing.contract_amount) || 0,
+      project_profit: Number(editing.project_profit) || 0,
+      self_dev_income: Number(editing.self_dev_income) || 0,
+      product_contract_amount: Number(editing.product_contract_amount) || 0,
+      presale_progress: Number(editing.presale_progress) || 0,
+      delivery_progress: Number(editing.delivery_progress) || 0,
+      pm_name: editing.pm_name ?? undefined,
+      project_status: editing.project_status ?? '进行中',
+    };
+  }, [editing]);
 
   const onSubmitForm = async () => {
     try {
@@ -588,6 +594,7 @@ export default function ProjectPage() {
           layout="vertical"
           autoComplete="off"
           preserve={false}
+          initialValues={initialFormValues}
         >
           <Space.Compact block>
             <Form.Item

@@ -6,7 +6,7 @@
  *   - 领导为公共人员打分（满分70分）+ 文字评语
  *   - 查看已有评分记录
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Card,
   Table,
@@ -67,18 +67,20 @@ export default function WorkGoalPage() {
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
 
+  // 预填策略：Modal 使用 destroyOnClose，Form 每次打开时重新挂载并读取 initialValues。
   const openScoring = (record: EmployeeWithScore) => {
     setCurrentEmp(record);
-    if (record.existingScore) {
-      form.setFieldsValue({
-        score: Number(record.existingScore.score),
-        comment: record.existingScore.comment || '',
-      });
-    } else {
-      form.resetFields();
-    }
     setScoreOpen(true);
   };
+
+  const scoreInitialValues = useMemo(() => {
+    const existing = currentEmp?.existingScore;
+    if (!existing) return undefined;
+    return {
+      score: Number(existing.score),
+      comment: existing.comment || '',
+    };
+  }, [currentEmp]);
 
   const handleSubmit = async () => {
     try {
@@ -184,7 +186,7 @@ export default function WorkGoalPage() {
             {currentEmp.group_name ? ` - ${currentEmp.group_name}` : ''}）
           </div>
         )}
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" preserve={false} initialValues={scoreInitialValues}>
           <Form.Item
             label="工作目标完成度得分（满分 70 分）"
             name="score"

@@ -506,6 +506,7 @@ export interface FinalResult {
   employee_name: string;
   department: string;
   group_name: string | null;
+  position: string | null;
   grade: string | null;
   assess_type: string;
   work_score: number | string;

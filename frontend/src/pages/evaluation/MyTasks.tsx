@@ -54,18 +54,14 @@ export default function MyTasksPage() {
   const [submitting, setSubmitting] = useState(false);
   const [scoreForm] = Form.useForm();
 
+  // 预填策略：Modal 使用 destroyOnClose，Form 每次打开时重新挂载为空白表单。
+  // 此处无历史评分需要回填（评分提交后任务转为「已完成」走 openDetail），所以不需要 initialValues。
   const openScoring = async (record: EvalRelation) => {
     setCurrentTask(record);
     setScoreOpen(true);
     try {
       const dims = await evaluationApi.getDimensions(record.evaluatee_assess_type);
       setDimensions(dims);
-      // 初始化表单字段
-      const initial: Record<string, undefined> = {};
-      dims.forEach((d) => {
-        initial[d.dimension] = undefined;
-      });
-      scoreForm.setFieldsValue(initial);
     } catch {
       message.error('加载评分维度失败');
     }
@@ -86,7 +82,6 @@ export default function MyTasksPage() {
       });
       message.success('评分提交成功');
       setScoreOpen(false);
-      scoreForm.resetFields();
       loadTasks();
     } catch {
       message.error('��分提交失败');
@@ -187,10 +182,7 @@ export default function MyTasksPage() {
       <Modal
         title={currentTask ? `评价 - ${currentTask.evaluatee_name}` : '评价'}
         open={scoreOpen}
-        onCancel={() => {
-          setScoreOpen(false);
-          scoreForm.resetFields();
-        }}
+        onCancel={() => setScoreOpen(false)}
         onOk={handleScoreSubmit}
         confirmLoading={submitting}
         okText="提交评分"
@@ -204,7 +196,7 @@ export default function MyTasksPage() {
             您的角色：<Tag>{currentTask.evaluator_type}</Tag>
           </div>
         )}
-        <Form form={scoreForm} layout="vertical">
+        <Form form={scoreForm} layout="vertical" preserve={false}>
           {dimensions.map((dim) => (
             <Form.Item
               key={dim.dimension}

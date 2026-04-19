@@ -158,7 +158,8 @@ async def get_project_participation_summary(db: AsyncSession, cycle_id: int) -> 
             "project_id": p.id,
             "project_name": p.project_name,
             "project_code": p.project_code,
+            "department": p.department,
             "pm_name": p.pm_name,
-            "is_filled": p.id in filled_project_ids,
+            "filled": p.id in filled_project_ids,
         })
     return summary

@@ -109,6 +109,7 @@ def _build_final_result(
         employee_name=emp.name,
         department=emp.department or "",
         group_name=emp.group_name or "",
+        position=emp.position or "",
         grade=emp.grade or "",
         assess_type=assess_type,
         work_score=scores["work_score"],
@@ -221,6 +222,8 @@ async def get_final_results(
     department: Optional[str] = None,
     assess_type: Optional[str] = None,
     employee_name: Optional[str] = None,
+    group_name: Optional[str] = None,
+    position: Optional[str] = None,
 ) -> list:
     """查询最终考核成绩"""
     query = select(FinalResult).where(FinalResult.cycle_id == cycle_id)
@@ -230,6 +233,10 @@ async def get_final_results(
         query = query.where(FinalResult.assess_type == assess_type)
     if employee_name:
         query = query.where(FinalResult.employee_name.contains(employee_name))
+    if group_name:
+        query = query.where(FinalResult.group_name == group_name)
+    if position:
+        query = query.where(FinalResult.position == position)
     query = query.order_by(
         FinalResult.department,
         FinalResult.assess_type,

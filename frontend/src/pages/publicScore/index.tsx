@@ -93,31 +93,34 @@ export default function PublicScorePage() {
     load();
   }, [load]);
 
-  // 打开新增
+  // 预填策略：Modal 使用 destroyOnClose，Form 每次打开时重新挂载并读取 initialValues。
+  // openCreate/openEdit 只负责切状态，不再手动调 form.setFieldsValue / resetFields。
   const openCreate = () => {
     setEditingRecord(null);
-    form.resetFields();
     setModalOpen(true);
   };
 
-  // 打开编辑
   const openEdit = (record: PublicScore) => {
     setEditingRecord(record);
-    form.setFieldsValue({
-      activity_name: record.activity_name,
-      activity_type: record.activity_type,
-      man_months: Number(record.man_months),
-      complexity: record.complexity,
-      remark: record.remark || '',
-      ...(isAdmin
-        ? {
-            workload_coeff: Number(record.workload_coeff),
-            score: Number(record.score),
-          }
-        : {}),
-    });
     setModalOpen(true);
   };
+
+  const initialFormValues = useMemo<Partial<AdminEditFormValues> | undefined>(() => {
+    if (!editingRecord) return undefined;
+    return {
+      activity_name: editingRecord.activity_name,
+      activity_type: editingRecord.activity_type,
+      man_months: Number(editingRecord.man_months),
+      complexity: editingRecord.complexity,
+      remark: editingRecord.remark || '',
+      ...(isAdmin
+        ? {
+            workload_coeff: Number(editingRecord.workload_coeff),
+            score: Number(editingRecord.score),
+          }
+        : {}),
+    };
+  }, [editingRecord, isAdmin]);
 
   // 提交表单
   const handleSubmit = async () => {
@@ -352,6 +355,7 @@ export default function PublicScorePage() {
           form={form}
           layout="vertical"
           preserve={false}
+          initialValues={initialFormValues}
         >
           <Form.Item
             name="activity_name"

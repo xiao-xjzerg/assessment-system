@@ -14,6 +14,7 @@ class FinalResult(Base):
     employee_name = Column(String(50), nullable=False, comment="员工姓名")
     department = Column(String(50), nullable=False, comment="部门")
     group_name = Column(String(50), nullable=True, comment="组/中心")
+    position = Column(String(50), nullable=True, comment="岗位")
     grade = Column(String(20), nullable=True, comment="岗级")
     assess_type = Column(String(20), nullable=False, comment="考核类型")
 

@@ -77,8 +77,8 @@ export default function BonusPage() {
     setAddOpen(true);
     if (employees.length === 0) {
       try {
-        const res = await employeeApi.list({ page_size: 500 });
-        setEmployees(res.items);
+        const res = await employeeApi.fetchAll();
+        setEmployees(res);
       } catch {
         message.error('加载员工列表失败');
       }

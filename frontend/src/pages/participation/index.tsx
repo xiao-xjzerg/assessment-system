@@ -168,8 +168,8 @@ function FillTab() {
   const loadEmployees = useCallback(async () => {
     setEmpLoading(true);
     try {
-      const res = await employeeApi.list({ page_size: 9999 });
-      setEmployees(res.items);
+      const res = await employeeApi.fetchAll();
+      setEmployees(res);
     } catch {
       // 静默
     } finally {

@@ -107,27 +107,32 @@ export default function EmployeePage() {
   }, [fetchList]);
 
   // ---- 表单：新增 / 编辑 ----
+  // 预填策略：Modal 使用 destroyOnClose，Form 每次打开时重新挂载并读取 initialValues。
+  // openCreate/openEdit 只负责切状态，不再手动调 form.setFieldsValue / resetFields。
   const openCreate = () => {
     setEditing(null);
-    form.resetFields();
     setFormOpen(true);
   };
 
   const openEdit = (row: Employee) => {
     setEditing(row);
-    form.setFieldsValue({
-      name: row.name,
-      department: row.department,
-      group_name: row.group_name ?? '',
-      position: row.position ?? '',
-      grade: row.grade ?? '',
-      phone: row.phone,
-      role: row.role,
-      assess_type: row.assess_type,
-      is_active: row.is_active,
-    });
     setFormOpen(true);
   };
+
+  const initialFormValues = useMemo<Partial<FormValues> | undefined>(() => {
+    if (!editing) return undefined;
+    return {
+      name: editing.name,
+      department: editing.department,
+      group_name: editing.group_name ?? '',
+      position: editing.position ?? '',
+      grade: editing.grade ?? '',
+      phone: editing.phone,
+      role: editing.role,
+      assess_type: editing.assess_type,
+      is_active: editing.is_active,
+    };
+  }, [editing]);
 
   const onSubmitForm = async () => {
     try {
@@ -500,6 +505,7 @@ export default function EmployeePage() {
           layout="vertical"
           autoComplete="off"
           preserve={false}
+          initialValues={initialFormValues}
         >
           <Space.Compact block>
             <Form.Item

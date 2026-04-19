@@ -32,4 +32,24 @@ export const employeeApi = {
   /** 导入员工 Excel；reimport=true 为全量更新 */
   importExcel: (file: File, reimport = false) =>
     upload<ImportResult>('/employees/import', file, { reimport }),
+
+  /**
+   * 拉取当前周期全部员工（用于下拉选人等场景）。
+   * 后端 page_size 上限为 100，这里按页循环合并；筛选条件与 list 一致。
+   */
+  async fetchAll(params: Omit<EmployeeListQuery, 'page' | 'page_size'> = {}): Promise<Employee[]> {
+    const pageSize = 100;
+    const first = await get<PaginatedData<Employee>>('/employees', {
+      params: { ...params, page: 1, page_size: pageSize },
+    });
+    const all = [...first.items];
+    const totalPages = Math.ceil(first.total / pageSize);
+    for (let page = 2; page <= totalPages; page++) {
+      const resp = await get<PaginatedData<Employee>>('/employees', {
+        params: { ...params, page, page_size: pageSize },
+      });
+      all.push(...resp.items);
+    }
+    return all;
+  },
 };

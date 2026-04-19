@@ -11,6 +11,7 @@ class FinalResultOut(BaseModel):
     employee_name: str
     department: str
     group_name: Optional[str] = None
+    position: Optional[str] = None
     grade: Optional[str] = None
     assess_type: str
     work_score: Decimal

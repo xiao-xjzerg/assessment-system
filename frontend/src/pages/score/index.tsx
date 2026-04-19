@@ -7,7 +7,7 @@
  *   - 积分汇总查询（按员工/部门/考核类型筛选）
  *   - Excel 导出
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Card,
   Table,
@@ -146,16 +146,21 @@ export default function ScorePage() {
   const [editConfirmLoading, setEditConfirmLoading] = useState(false);
   const [editForm] = Form.useForm();
 
+  // 预填策略：Modal 使用 destroyOnClose，Form 每次打开时重新挂载并读取 initialValues。
   const openEdit = (record: ScoreDetail) => {
     setEditingDetail(record);
-    editForm.setFieldsValue({
-      progress_coeff: Number(record.progress_coeff),
-      workload_coeff: Number(record.workload_coeff),
-      work_description: record.work_description || '',
-      remark: record.remark || '',
-    });
     setEditModalOpen(true);
   };
+
+  const editInitialValues = useMemo(() => {
+    if (!editingDetail) return undefined;
+    return {
+      progress_coeff: Number(editingDetail.progress_coeff),
+      workload_coeff: Number(editingDetail.workload_coeff),
+      work_description: editingDetail.work_description || '',
+      remark: editingDetail.remark || '',
+    };
+  }, [editingDetail]);
 
   const handleEditSubmit = async () => {
     try {
@@ -466,7 +471,7 @@ export default function ScorePage() {
         confirmLoading={editConfirmLoading}
         destroyOnClose
       >
-        <Form form={editForm} layout="vertical">
+        <Form form={editForm} layout="vertical" preserve={false} initialValues={editInitialValues}>
           <Form.Item
             label="进度系数"
             name="progress_coeff"
