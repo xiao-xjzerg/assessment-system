@@ -3,15 +3,16 @@
 积分计算流程：
 1. 根据项目参与度 + 项目数据，生成售前/交付积分明细(score_details)
 2. 根据公共积分申报(public_scores)，生成公共/转型积分明细(score_details)
-3. 公共活动积分上限校验：不超过该员工项目积分的15%
-4. 汇总生成积分汇总表(score_summaries)
-5. 计算开方归一化得分(normalized_score)
+3. 汇总生成积分汇总表(score_summaries)
+4. 计算开方归一化得分(normalized_score)
+
+注：公共积分与项目积分独立核算，不设联动上限。
 """
 import math
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
-from sqlalchemy import select, delete, func, and_
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.score import ScoreDetail, ScoreSummary
@@ -23,7 +24,6 @@ from app.config import (
     BASE_SCORE_PRESALE, BASE_SCORE_DELIVERY,
     BASE_SCORE_PUBLIC, BASE_SCORE_TRANSFORM,
     ASSESS_TYPE_MANAGER, ASSESS_TYPE_BUSINESS, ASSESS_TYPE_RD,
-    DEPT_DELIVERY, DEPT_RD,
 )
 
 
@@ -39,16 +39,13 @@ async def calculate_all_scores(db: AsyncSession, cycle_id: int):
     # 2. 生成项目积分明细（售前+交付）
     await _generate_project_score_details(db, cycle_id)
 
-    # 3. 生成公共/转型积分明细
+    # 3. 生成公共/转型积分明细（与项目积分独立，无上限联动）
     await _generate_public_score_details(db, cycle_id)
 
-    # 4. 应用公共活动积分上限（15%项目积分）
-    await _apply_public_score_cap(db, cycle_id)
-
-    # 5. 生成积分汇总
+    # 4. 生成积分汇总
     await _generate_score_summaries(db, cycle_id)
 
-    # 6. 计算开方归一化得分
+    # 5. 计算开方归一化得分
     await _calculate_normalized_scores(db, cycle_id)
 
     await db.flush()
@@ -177,59 +174,6 @@ async def _generate_public_score_details(db: AsyncSession, cycle_id: int):
     await db.flush()
 
 
-async def _apply_public_score_cap(db: AsyncSession, cycle_id: int):
-    """
-    公共活动积分上限：不超过该员工项目积分(售前+交付)合计的15%。
-    转型活动不设上限。
-    """
-    # 获取每个员工的项目积分合计
-    proj_scores = await db.execute(
-        select(
-            ScoreDetail.employee_id,
-            func.sum(ScoreDetail.score).label("total"),
-        ).where(
-            ScoreDetail.cycle_id == cycle_id,
-            ScoreDetail.phase.in_(["售前", "交付"]),
-        ).group_by(ScoreDetail.employee_id)
-    )
-    proj_totals = {row.employee_id: Decimal(str(row.total)) for row in proj_scores.all()}
-
-    # 获取每个员工的公共积分明细
-    public_details_result = await db.execute(
-        select(ScoreDetail).where(
-            ScoreDetail.cycle_id == cycle_id,
-            ScoreDetail.phase == "公共",
-        ).order_by(ScoreDetail.employee_id, ScoreDetail.id)
-    )
-    public_details = public_details_result.scalars().all()
-
-    # 按员工分组
-    emp_public: dict[int, list] = {}
-    for d in public_details:
-        emp_public.setdefault(d.employee_id, []).append(d)
-
-    for emp_id, details in emp_public.items():
-        proj_total = proj_totals.get(emp_id, Decimal("0"))
-        cap = (proj_total * Decimal("0.15")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-        # 计算公共积分合计
-        public_total = sum(Decimal(str(d.score)) for d in details)
-
-        if public_total > cap and cap > 0:
-            # 按比例缩减每条公共积分记录
-            ratio = cap / public_total
-            for d in details:
-                d.score = (Decimal(str(d.score)) * ratio).quantize(
-                    Decimal("0.01"), rounding=ROUND_HALF_UP
-                )
-        elif cap == 0:
-            # 没有项目积分，公共积分全部归零
-            for d in details:
-                d.score = Decimal("0")
-
-    await db.flush()
-
-
 async def _generate_score_summaries(db: AsyncSession, cycle_id: int):
     """
     根据积分明细生成积分汇总表。
@@ -292,8 +236,8 @@ async def _calculate_normalized_scores(db: AsyncSession, cycle_id: int):
     """
     计算开方归一化得分。
     - 基层管理人员: 得分 = 30 × √(个人积分) / √(全类型最高积分)
-    - 业务人员: 得分 = 50 × √(个人积分) / √(同类人员最高积分)（实施交付部内比较）
-    - 产品研发人员: 得分 = 50 × √(个人积分) / √(同类人员最高积分)（产品研发部内比较）
+    - 业务人员 / 产品研发人员: 得分 = 50 × √(个人积分) / √(同部门同类型最高积分)
+      按员工实际所在部门比较（业务人员、产品研发人员可能分布在任一部门）
     - 公共人员: 不计算积分得分（公共人员用工作目标完成度70分）
     """
     result = await db.execute(
@@ -307,18 +251,13 @@ async def _calculate_normalized_scores(db: AsyncSession, cycle_id: int):
     # 找到全类型最高积分（用于基层管理人员）
     all_max = max(float(s.total_score) for s in summaries) if summaries else 0
 
-    # 按部门+考核类型分组，找各组最高积分
+    # 按员工实际所在部门+考核类型分组，找各组最高积分
     group_max: dict[str, float] = {}
     for s in summaries:
         key = f"{s.department}_{s.assess_type}"
         current = float(s.total_score)
         if key not in group_max or current > group_max[key]:
             group_max[key] = current
-
-    # 实施交付部业务人员最高积分
-    delivery_business_max = group_max.get(f"{DEPT_DELIVERY}_{ASSESS_TYPE_BUSINESS}", 0)
-    # 产品研发部产品研发人员最高积分
-    rd_max = group_max.get(f"{DEPT_RD}_{ASSESS_TYPE_RD}", 0)
 
     for s in summaries:
         total = float(s.total_score)
@@ -329,15 +268,9 @@ async def _calculate_normalized_scores(db: AsyncSession, cycle_id: int):
             if all_max > 0 and total > 0:
                 normalized = 30.0 * math.sqrt(total) / math.sqrt(all_max)
 
-        elif s.assess_type == ASSESS_TYPE_BUSINESS:
-            # 业务人员: 50 × √(个人) / √(同部门同类最高)
-            dept_max = delivery_business_max
-            if dept_max > 0 and total > 0:
-                normalized = 50.0 * math.sqrt(total) / math.sqrt(dept_max)
-
-        elif s.assess_type == ASSESS_TYPE_RD:
-            # 产品研发人员: 50 × √(个人) / √(同部门同类最高)
-            dept_max = rd_max
+        elif s.assess_type in (ASSESS_TYPE_BUSINESS, ASSESS_TYPE_RD):
+            # 业务人员 / 产品研发人员: 50 × √(个人) / √(同部门同类型最高)
+            dept_max = group_max.get(f"{s.department}_{s.assess_type}", 0)
             if dept_max > 0 and total > 0:
                 normalized = 50.0 * math.sqrt(total) / math.sqrt(dept_max)
 

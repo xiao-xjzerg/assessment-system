@@ -471,7 +471,7 @@ assessment-system/
 2. **经济规模系数**先按利润分段计算，再乘以签约概率（未签约项目）
 3. **实施方式="产品+服务"**标识合同明确约定产品内容，用于产品化收入特殊规则
 4. **参与度系数**：同一项目内，实施交付部合计为1，产品研发部合计为1（某部门无人则为0）
-5. **公共活动积分上限**为该员工项目积分的15%，转型活动不设上限
+5. **公共积分与项目积分独立核算**，不设联动上限（公共活动、转型活动均按申报原值计入）
 6. **每位员工仅有一个考核类型**（基层管理人员/公共人员/业务人员/产品研发人员），不存在「混合角色」
 7. **排名**在同部门、同考核类型内进行
 8. **360评价匿名性**：评分详情API仅管理员和评价人本人可看，被评人不可查看具体评分来源
@@ -482,6 +482,40 @@ assessment-system/
    - `score_details` 是**积分明细汇总表**，汇集所有来源的积分（售前/交付/公共/转型），其中 phase="公共"或"转型" 的记录源自 public_scores
    - 计算流程：员工在 public_scores 申报 → 管理员审核 → 系统将审核通过的记录写入 score_details（phase="公共"/"转型"，project_id 为 null）→ 最终在 score_summaries 中汇总
    - 公共活动积分写入 score_details 时：base_score=10，workload_coeff=活动工作量系数，progress_coeff=1，participation_coeff=1
+12. **开方归一化得分**：
+   - 基层管理人员：`30 × √(个人总积分) / √(全类型最高积分)`
+   - 业务人员 / 产品研发人员：`50 × √(个人总积分) / √(同部门同考核类型最高积分)`，按**员工实际所在部门**取 max（业务人员、产品研发人员可能分布在实施交付部或产品研发部，不能写死部门）
+   - 公共人员：不计算归一化得分（以工作目标完成度 70 分替代）
+   - 最终成绩的 `work_score` 直接读取 `score_summaries.normalized_score`，两处数值必须完全一致；若不一致，通常是其中一表未重算
+
+## 前端开发约定
+
+### 编辑 Modal 表单的预填规范
+
+所有「新增 / 编辑」合用一个 Modal + Form 的页面，**必须**遵循以下范式，以保证打开编辑时能正确预填原值：
+
+```tsx
+// 1. openCreate / openEdit 只切状态
+const openCreate = () => { setEditing(null); setFormOpen(true); };
+const openEdit = (row) => { setEditing(row); setFormOpen(true); };
+
+// 2. 用 useMemo 从 editing 派生 initialValues
+const initialFormValues = useMemo(() => {
+  if (!editing) return undefined; // 或返回新增默认值
+  return { /* 字段映射，含 dayjs / 空值兜底 */ };
+}, [editing]);
+
+// 3. Modal 保留 destroyOnClose；Form 传 initialValues + preserve={false}
+<Modal open={formOpen} destroyOnClose ...>
+  <Form form={form} preserve={false} initialValues={initialFormValues}>
+    ...
+  </Form>
+</Modal>
+```
+
+**禁止**在 `openEdit` / `openCreate` 中调用 `form.setFieldsValue` 或 `form.resetFields()`。原因：`destroyOnClose` 会让 Form 在关闭时销毁，下次打开前 Form 尚未挂载，此时调 `setFieldsValue` 会写到一个未连接的 Form 实例上（控制台出现 "Instance created by `useForm` is not connected to any Form element" 警告，字段实际为空）。
+
+新增编辑页面时照抄以上三段结构即可，不要自创写法。
 
 ## 变更记录
 
@@ -504,6 +538,8 @@ assessment-system/
 | 2026-04-13 | 批次10完成：个人中心（基本信息+积分汇总+考核成绩）；路由清理移除Placeholder，所有页面路由均接入真实组件 | frontend/src/pages/profile/, router/routes.tsx |
 | 2026-04-18 | 移除「混合角色」概念：每位员工仅有一个考核类型。删除 `employees.assess_type_secondary` 字段、`final_results` 表的 `is_mixed_role` 与全部 `secondary_*` 字段；移除 result_service 50% 合并分支与排名特殊处理；员工导入模板/前端表单不再支持「第二考核类型」；新增 alembic 迁移 `c8b2f4d91a07_remove_mixed_role_fields.py` | models/employee.py, models/result.py, schemas/employee.py, schemas/result.py, services/{employee,cycle,bonus,result,excel}_service.py, routers/{employee,result}.py, import_data.py, alembic/versions/c8b2f4d91a07_*.py, frontend/src/types/index.ts, frontend/src/pages/employee/index.tsx, frontend/src/pages/result/index.tsx |
 | 2026-04-18 | 「项目经理」改为派生角色（不再作为员工表角色）：① 员工表角色收窄为 管理员/普通员工/领导（新增 `EMPLOYEE_ROLES` 常量），导入时空角色默认 `普通员工`；② PM 权限从 `projects.pm_id` 动态派生 —— `get_current_user` 给 user 挂 `is_pm` 属性、`require_roles` 在允许 `项目经理` 时兼容 `is_pm=True`、登录响应 `LoginResponse` 新增 `is_pm` 字段、participation/score/economic 路由的 `ROLE_PM` 判断改为 `is_pm`；③ 项目导入的 `pm_name → pm_id` 解析去掉 `role==项目经理` 过滤，只在唯一匹配时写 `pm_id`，否则设 `pm_missing=True`（`ProjectOut` 新增该字段）；④ 员工同名检测：`get_employees` 额外返回 `duplicate_names` 集合，`EmployeeOut` 新增 `is_duplicate_name`；⑤ 前端：`EMPLOYEE_ROLES` 常量、`userStore.is_pm`、`filterRoutesByRole` 接受 `isPm` 参数、Dashboard 按 `is_pm` 条件渲染 PM 入口、员工管理页姓名列同名冲突标红、项目管理页 PM 列 `pm_missing` 时红字 + "缺少员工信息" 小字 Tooltip；⑥ 仅逻辑变更，不迁移历史数据 | backend/app/config.py, dependencies.py, schemas/{auth,employee,project}.py, services/{employee,project,excel}_service.py, routers/{auth,employee,project,participation,score,economic}.py, import_data.py, frontend/src/types/index.ts, utils/constants.ts, stores/userStore.ts, router/routes.tsx, layouts/BasicLayout.tsx, pages/{dashboard,employee,project}/index.tsx |
+| 2026-04-19 | 修复所有编辑 Modal 打开时字段为空的问题：Modal `destroyOnClose` + `form.setFieldsValue` 存在时序冲突，Form 尚未挂载时写值丢失。统一改为「`initialValues` 派生自 `editing` state + `preserve={false}`」范式，`openEdit/openCreate` 只切状态；CLAUDE.md 新增「前端开发约定」章节沉淀此规范 | frontend/src/pages/employee/index.tsx, project/index.tsx, publicScore/index.tsx, score/index.tsx, result/index.tsx, evaluation/{Relations,WorkGoal,MyTasks}.tsx, CLAUDE.md |
+| 2026-04-20 | 修复"最终成绩"与"积分统计"数据不一致的两处 bug：① **公共积分归零 bug** —— 原 `_apply_public_score_cap` 按"公共活动上限=项目积分×15%"缩减；当员工无项目积分（cap=0）时将公共积分全部置 0，导致无项目的基层管理人员 / 转型人员已申报的公共活动积分被错误抹掉。现改为**公共积分与项目积分完全独立核算**，移除整个 cap 函数及其在 `calculate_all_scores` 中的调用；业务规则第 5 条同步更新。② **跨部门归一化 bug** —— 原 `_calculate_normalized_scores` 将 `delivery_business_max` 写死为"实施交付部_业务人员"、`rd_max` 写死为"产品研发部_产品研发人员"；但员工表中这两类人员均可分布于任一部门（实施交付部有 14 名产品研发人员、产品研发部有 15 名业务人员），被"错部门"的员工 `rd_max=0`→ 归一化得分=0 → 最终成绩 `work_score=0`。现改为**按员工自身 `department + assess_type` 查 `group_max`**，业务人员、产品研发人员都走同一分支。③ 业务规则新增第 12 条归档开方归一化规则：最终成绩 `work_score` 直接等于 `score_summaries.normalized_score`，两表不一致时通常是其中一张未重算。④ 现场数据验证：刘三(产品研发人员,无项目) 公共3+转型9→总12→归一化25.1；管理员(基层管理,无项目) 公共6→总6→归一化10.65；实施交付部产品研发组内 黄芳47.6→50、何磊35.7→43.3；所有 `final_results.work_score` 与 `score_summaries.normalized_score` 完全一致 | backend/app/services/score_service.py, CLAUDE.md |
 
 ### 阶段四：积分计算与公共积分申报 ✅
 
