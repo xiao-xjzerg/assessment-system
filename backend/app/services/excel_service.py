@@ -17,6 +17,7 @@ EMPLOYEE_COLUMNS = [
 ]
 
 # ---- 项目 Excel 列映射 ----
+# 注：表头沿用模板 "签约概率%"，但数据仍按小数录入（如 0.85 表示 85%）
 PROJECT_COLUMNS = [
     ("项目令号", "project_code"),
     ("项目名称", "project_name"),
@@ -32,7 +33,9 @@ PROJECT_COLUMNS = [
     ("售前活动进度系数", "presale_progress"),
     ("交付活动进度系数", "delivery_progress"),
     ("项目经理", "pm_name"),
-    ("签约概率", "signing_probability"),
+    ("签约概率%", "signing_probability"),
+    ("当期确认项目利润", "current_period_profit"),
+    ("当期确认自研收入", "current_period_self_dev_income"),
 ]
 
 
@@ -102,6 +105,7 @@ def generate_template(columns: list[tuple[str, str]], sample_data: list[dict] | 
 
 def generate_employee_template() -> bytes:
     # 角色仅允许 管理员/普通员工/领导；留空则默认为"普通员工"
+    # 角色=领导时，"组/中心"与"考核类型"可留空（领导不参与考核）
     sample = [
         {
             "name": "张三",
@@ -135,6 +139,8 @@ def generate_project_template() -> bytes:
             "delivery_progress": "0.3",
             "pm_name": "张三",
             "signing_probability": "1",
+            "current_period_profit": "0",
+            "current_period_self_dev_income": "0",
         }
     ]
     return generate_template(PROJECT_COLUMNS, sample)

@@ -550,6 +550,9 @@ function AdminAllTab() {
 
 export default function ParticipationPage() {
   const isAdmin = useUserStore((s) => s.isAdmin());
+  const isLeader = useUserStore((s) => s.isLeader());
+  // 领导与管理员等权：可查看所有项目的参与度、全量管理与概览统计
+  const isPrivileged = isAdmin || isLeader;
 
   const items = useMemo(() => {
     const tabs = [
@@ -559,7 +562,7 @@ export default function ParticipationPage() {
         children: <FillTab />,
       },
     ];
-    if (isAdmin) {
+    if (isPrivileged) {
       tabs.push(
         {
           key: 'summary',
@@ -574,7 +577,7 @@ export default function ParticipationPage() {
       );
     }
     return tabs;
-  }, [isAdmin]);
+  }, [isPrivileged]);
 
   return (
     <div style={{ padding: 24 }}>

@@ -84,6 +84,7 @@ async def list_summary(
         all_details = [d for d in all_details if d["employee_id"] == current_user.id]
 
     # 按员工汇总（排除产品合同类型的重复计分）
+    # breakdown 字段返回参与总分计算的各条明细，供前端 Tooltip 展示完整公式
     emp_summary: dict[int, dict] = {}
     for d in all_details:
         eid = d["employee_id"]
@@ -96,9 +97,21 @@ async def list_summary(
                 "grade": d["grade"],
                 "assess_type": d["assess_type"],
                 "total_score": 0.0,
+                "breakdown": [],
             }
         if d["indicator_type"] != "产品合同":
             emp_summary[eid]["total_score"] += d["score"]
+            emp_summary[eid]["breakdown"].append({
+                "project_name": d["project_name"],
+                "indicator_type": d["indicator_type"],
+                "raw_value": d["raw_value"],
+                "participation_coeff": d["participation_coeff"],
+                "completed_value": d["completed_value"],
+                "target_value": d["target_value"],
+                "indicator_coeff": d["indicator_coeff"],
+                "full_mark": d["full_mark"],
+                "score": d["score"],
+            })
 
     summaries = list(emp_summary.values())
     for s in summaries:

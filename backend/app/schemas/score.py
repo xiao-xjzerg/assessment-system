@@ -45,5 +45,7 @@ class ScoreSummaryOut(BaseModel):
     transform_score_total: Decimal
     total_score: Decimal
     normalized_score: Decimal
+    normalize_full_mark: Optional[Decimal] = None
+    normalize_base_max: Optional[Decimal] = None
 
     model_config = {"from_attributes": True}

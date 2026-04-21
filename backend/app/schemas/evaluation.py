@@ -79,6 +79,7 @@ class WorkGoalScoreOut(BaseModel):
     cycle_id: int
     employee_id: int
     leader_id: int
+    leader_name: Optional[str] = None
     score: Decimal
     comment: Optional[str] = None
 

@@ -22,6 +22,7 @@ from app.models.employee import Employee
 from app.services.economic_service import calculate_economic_indicators, get_employee_economic_score
 from app.config import (
     ASSESS_TYPE_MANAGER, ASSESS_TYPE_PUBLIC, ASSESS_TYPE_BUSINESS, ASSESS_TYPE_RD,
+    ROLE_ADMIN, ROLE_LEADER,
 )
 
 D = Decimal
@@ -56,7 +57,11 @@ async def calculate_final_results(db: AsyncSession, cycle_id: int) -> list[Final
     # 3. 为每个员工计算最终成绩
     results: list[FinalResult] = []
     for emp in employees.values():
-        if emp.role == "领导":
+        # 领导不参与考核；管理员账号及任何没有考核类型的员工也跳过
+        # （final_results.assess_type NOT NULL，且业务侧不对他们做成绩排名）
+        if emp.role in (ROLE_LEADER, ROLE_ADMIN):
+            continue
+        if not emp.assess_type:
             continue
 
         result = _build_final_result(
@@ -158,11 +163,9 @@ def _calc_dimension_scores(
         if kt:
             key_task_score = D(str(kt.score or 0))
 
-    # 工作目标完成度得分（仅公共人员，满分70）
+    # 工作目标完成度得分（仅公共人员，满分70；多位领导评分时取均值）
     if assess_type == ASSESS_TYPE_PUBLIC:
-        wg = work_goal_scores.get(emp.id)
-        if wg:
-            work_goal_score = D(str(wg.score or 0))
+        work_goal_score = work_goal_scores.get(emp.id, ZERO)
 
     # 综合评价得分（来自 eval_summaries.final_score，满分30）
     es = eval_summaries.get(emp.id)
@@ -293,11 +296,18 @@ async def _load_eval_summaries(db: AsyncSession, cycle_id: int) -> dict[int, Eva
     return {s.employee_id: s for s in result.scalars().all()}
 
 
-async def _load_work_goal_scores(db: AsyncSession, cycle_id: int) -> dict[int, WorkGoalScore]:
+async def _load_work_goal_scores(db: AsyncSession, cycle_id: int) -> dict[int, D]:
+    """按员工聚合工作目标完成度得分。多位领导评分时取均值。"""
     result = await db.execute(
         select(WorkGoalScore).where(WorkGoalScore.cycle_id == cycle_id)
     )
-    return {s.employee_id: s for s in result.scalars().all()}
+    grouped: dict[int, list[D]] = {}
+    for s in result.scalars().all():
+        grouped.setdefault(s.employee_id, []).append(D(str(s.score or 0)))
+    return {
+        eid: (sum(scores) / D(len(scores))) if scores else ZERO
+        for eid, scores in grouped.items()
+    }
 
 
 async def _load_bonus_sums(db: AsyncSession, cycle_id: int) -> dict[int, D]:

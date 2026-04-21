@@ -169,10 +169,12 @@ async def save_signing_probabilities(db: AsyncSession, cycle_id: int, items: lis
         )
         project = result.scalar_one_or_none()
         if project:
-            project.signing_probability = item.signing_probability
+            from app.services.project_service import (
+                calc_project_coefficients, normalize_signing_probability,
+            )
+            project.signing_probability = normalize_signing_probability(item.signing_probability)
             # 重新计算经济规模系数（签约概率影响）
-            from app.services.project_service import calc_project_coefficients
-            calc_project_coefficients(project)
+            await calc_project_coefficients(db, project)
             db.add(project)
             count += 1
     await db.flush()

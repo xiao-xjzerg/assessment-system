@@ -12,7 +12,7 @@ export interface UserProfile {
   user_id: number;
   name: string;
   role: string;
-  assess_type: string;
+  assess_type: string | null;
   department: string;
   /** 是否在当前周期派生为项目经理（由项目一览表 pm_id 动态判定） */
   is_pm: boolean;

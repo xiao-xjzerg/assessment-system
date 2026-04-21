@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import (
     EMPLOYEE_ROLES, ALL_ASSESS_TYPES, ALL_DEPARTMENTS,
-    ROLE_EMPLOYEE, DEFAULT_PASSWORD_SUFFIX_LENGTH,
+    ROLE_EMPLOYEE, ROLE_LEADER, DEFAULT_PASSWORD_SUFFIX_LENGTH,
+    ADMIN_PHONE,
 )
 from app.models.employee import Employee
 
@@ -27,7 +28,11 @@ def validate_employee_row(row: dict, row_num: int) -> list[str]:
     注：角色若为空由调用方先补默认值"普通员工"再进入校验。
     """
     errors = []
-    required = ["name", "department", "phone", "assess_type"]
+    # 领导不参与考核，允许 assess_type 为空
+    role = row.get("role", "") or ROLE_EMPLOYEE
+    required = ["name", "department", "phone"]
+    if role != ROLE_LEADER:
+        required.append("assess_type")
     for field in required:
         if not row.get(field):
             errors.append(f"第{row_num}行：{field}不能为空")
@@ -35,6 +40,8 @@ def validate_employee_row(row: dict, row_num: int) -> list[str]:
     phone = row.get("phone", "")
     if phone and not PHONE_PATTERN.match(str(phone)):
         errors.append(f"第{row_num}行：手机号格式不正确（需11位数字）")
+    if phone and str(phone) == ADMIN_PHONE:
+        errors.append(f"第{row_num}行：手机号 {ADMIN_PHONE} 为系统保留账号，不可在导入文件中使用")
 
     role = row.get("role", "")
     if role and role not in EMPLOYEE_ROLES:
@@ -114,7 +121,7 @@ async def import_employees(
             phone=phone,
             password_hash=pwd_context.hash(password),
             role=row["role"],
-            assess_type=row["assess_type"],
+            assess_type=row.get("assess_type") or None,
         )
         db.add(emp)
 
@@ -125,9 +132,14 @@ async def import_employees(
 async def reimport_employees(
     db: AsyncSession, cycle_id: int, rows: list[dict]
 ) -> dict:
-    """全量更新导入（先删除当前周期所有员工再导入）"""
+    """全量更新导入（先删除当前周期所有员工再导入，但保留系统管理员 admin 行）"""
     from sqlalchemy import delete
-    await db.execute(delete(Employee).where(Employee.cycle_id == cycle_id))
+    await db.execute(
+        delete(Employee).where(
+            Employee.cycle_id == cycle_id,
+            Employee.phone != ADMIN_PHONE,
+        )
+    )
     await db.flush()
     return await import_employees(db, cycle_id, rows)
 
@@ -191,6 +203,8 @@ async def reset_password(db: AsyncSession, employee_id: int) -> str:
     emp = result.scalar_one_or_none()
     if emp is None:
         raise ValueError("员工不存在")
+    if emp.phone == ADMIN_PHONE:
+        raise ValueError("系统管理员账号受保护，不可通过此接口重置密码，请使用『修改密码』功能")
     password = generate_default_password(emp.phone)
     emp.password_hash = pwd_context.hash(password)
     db.add(emp)

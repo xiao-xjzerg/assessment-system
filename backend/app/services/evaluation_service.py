@@ -671,24 +671,31 @@ async def get_public_employees_for_leader(
     db: AsyncSession,
     cycle_id: int,
     leader_id: int,
+    all_departments: bool = False,
 ) -> list:
-    """获取领导需要打分的公共人员列表（同部门公共人员）"""
-    leader_result = await db.execute(
-        select(Employee).where(Employee.id == leader_id)
-    )
-    leader = leader_result.scalar_one_or_none()
-    if leader is None:
-        raise ValueError("领导不存在")
+    """获取打分对象列表。
 
-    result = await db.execute(
-        select(Employee).where(
-            Employee.cycle_id == cycle_id,
-            Employee.department == leader.department,
-            Employee.assess_type == ASSESS_TYPE_PUBLIC,
-            Employee.is_active == True,
-            Employee.id != leader_id,
-        ).order_by(Employee.name)
+    - 领导：同部门公共人员
+    - 管理员（all_departments=True）：所有部门公共人员
+    """
+    query = select(Employee).where(
+        Employee.cycle_id == cycle_id,
+        Employee.assess_type == ASSESS_TYPE_PUBLIC,
+        Employee.is_active == True,
+        Employee.id != leader_id,
     )
+
+    if not all_departments:
+        leader_result = await db.execute(
+            select(Employee).where(Employee.id == leader_id)
+        )
+        leader = leader_result.scalar_one_or_none()
+        if leader is None:
+            raise ValueError("领导不存在")
+        query = query.where(Employee.department == leader.department)
+
+    query = query.order_by(Employee.department, Employee.name)
+    result = await db.execute(query)
     return result.scalars().all()
 
 

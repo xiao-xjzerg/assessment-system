@@ -61,10 +61,10 @@ async def list_public_scores(
     db: AsyncSession = Depends(get_db),
     current_user: Employee = Depends(get_current_user),
 ):
-    """查询公共积分申报记录。普通员工只能看自己的，管理员可看全部"""
+    """查询公共积分申报记录。普通员工只能看自己的，管理员/领导可看全部"""
     cycle = await _get_active_cycle(db)
 
-    if current_user.role == ROLE_ADMIN:
+    if current_user.role in (ROLE_ADMIN, ROLE_LEADER):
         items = await get_public_scores(
             db, cycle.id,
             employee_id=employee_id,
@@ -73,7 +73,7 @@ async def list_public_scores(
             employee_name=employee_name,
         )
     else:
-        # 非管理员只能看自己的
+        # 其他角色只能看自己的
         items = await get_public_scores(
             db, cycle.id,
             employee_id=current_user.id,
@@ -93,28 +93,28 @@ async def edit_public_score(
     db: AsyncSession = Depends(get_db),
     current_user: Employee = Depends(get_current_user),
 ):
-    """修改公共积分申报。员工只能改自己的，管理员可改全部（含直接修改工作量系数和积分）"""
+    """修改公共积分申报。员工只能改自己的，管理员/领导可改全部（含直接修改工作量系数和积分）"""
     # 检查记录所有权
     result = await db.execute(select(PublicScore).where(PublicScore.id == record_id))
     record = result.scalar_one_or_none()
     if record is None:
         raise HTTPException(status_code=404, detail="记录不存在")
 
-    is_admin = current_user.role == ROLE_ADMIN
-    if not is_admin and record.employee_id != current_user.id:
+    is_privileged = current_user.role in (ROLE_ADMIN, ROLE_LEADER)
+    if not is_privileged and record.employee_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权修改此记录")
 
     try:
         updated = await update_public_score(
             db, record_id,
             body.model_dump(exclude_unset=True),
-            is_admin=is_admin,
+            is_admin=is_privileged,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     data = PublicScoreOut.model_validate(updated).model_dump()
-    msg = "管理员已修改" if is_admin else "修改成功"
+    msg = "管理员已修改" if is_privileged else "修改成功"
     return ResponseModel(message=msg, data=data)
 
 
@@ -125,14 +125,14 @@ async def remove_public_score(
     db: AsyncSession = Depends(get_db),
     current_user: Employee = Depends(get_current_user),
 ):
-    """删除公共积分申报。员工只能删自己的，管理员可删全部"""
+    """删除公共积分申报。员工只能删自己的，管理员/领导可删全部"""
     result = await db.execute(select(PublicScore).where(PublicScore.id == record_id))
     record = result.scalar_one_or_none()
     if record is None:
         raise HTTPException(status_code=404, detail="记录不存在")
 
-    is_admin = current_user.role == ROLE_ADMIN
-    if not is_admin and record.employee_id != current_user.id:
+    is_privileged = current_user.role in (ROLE_ADMIN, ROLE_LEADER)
+    if not is_privileged and record.employee_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权删除此记录")
 
     try:

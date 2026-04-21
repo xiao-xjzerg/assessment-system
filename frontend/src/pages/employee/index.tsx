@@ -51,6 +51,7 @@ import {
   EMPLOYEE_ROLES,
   DEFAULT_PAGE_SIZE,
   PAGE_SIZE_OPTIONS,
+  ROLE,
 } from '@/utils/constants';
 import { downloadBlob, extractFilename } from '@/utils/format';
 
@@ -138,11 +139,14 @@ export default function EmployeePage() {
     try {
       const values = await form.validateFields();
       setSubmitting(true);
+      const isLeader = values.role === ROLE.LEADER;
       const payload: FormValues = {
         ...values,
         group_name: values.group_name?.trim() || null,
         position: values.position?.trim() || null,
         grade: values.grade?.trim() || null,
+        // 领导不参与考核：考核类型允许为空
+        assess_type: isLeader ? (values.assess_type || null) : values.assess_type,
       };
       if (editing) {
         await employeeApi.update(editing.id, payload);
@@ -307,7 +311,8 @@ export default function EmployeePage() {
         title: '考核类型',
         dataIndex: 'assess_type',
         width: 130,
-        render: (v: string) => <Tag color="purple">{v}</Tag>,
+        render: (v: string | null) =>
+          v ? <Tag color="purple">{v}</Tag> : <span style={{ color: '#999' }}>-</span>,
       },
       {
         title: '状态',
@@ -533,13 +538,10 @@ export default function EmployeePage() {
             <Form.Item
               label="部门"
               name="department"
-              rules={[{ required: true, message: '请选择部门' }]}
+              rules={[{ required: true, message: '请输入部门' }]}
               style={{ flex: 1, marginRight: 8 }}
             >
-              <Select
-                placeholder="部门"
-                options={ALL_DEPARTMENTS.map((d) => ({ label: d, value: d }))}
-              />
+              <Input placeholder="部门" maxLength={50} />
             </Form.Item>
             <Form.Item
               label="组/中心"
@@ -576,15 +578,30 @@ export default function EmployeePage() {
               />
             </Form.Item>
             <Form.Item
-              label="考核类型"
-              name="assess_type"
-              rules={[{ required: true, message: '请选择考核类型' }]}
-              style={{ flex: 1 }}
+              noStyle
+              shouldUpdate={(prev, curr) => prev.role !== curr.role}
             >
-              <Select
-                placeholder="考核类型"
-                options={ALL_ASSESS_TYPES.map((a) => ({ label: a, value: a }))}
-              />
+              {({ getFieldValue }) => {
+                const isLeader = getFieldValue('role') === ROLE.LEADER;
+                return (
+                  <Form.Item
+                    label={isLeader ? '考核类型（领导可留空）' : '考核类型'}
+                    name="assess_type"
+                    rules={
+                      isLeader
+                        ? []
+                        : [{ required: true, message: '请选择考核类型' }]
+                    }
+                    style={{ flex: 1 }}
+                  >
+                    <Select
+                      placeholder={isLeader ? '领导不参与考核，可留空' : '考核类型'}
+                      allowClear={isLeader}
+                      options={ALL_ASSESS_TYPES.map((a) => ({ label: a, value: a }))}
+                    />
+                  </Form.Item>
+                );
+              }}
             </Form.Item>
           </Space.Compact>
 

@@ -114,7 +114,7 @@ export const appRoutes: AppRouteNode[] = [
       {
         path: 'participation',
         title: '项目参与度',
-        roles: [ROLE.ADMIN, ROLE.PM],
+        roles: [ROLE.ADMIN, ROLE.PM, ROLE.LEADER],
         element: <ParticipationPage />,
       },
       {
@@ -168,7 +168,7 @@ export const appRoutes: AppRouteNode[] = [
       },
       {
         path: 'work-goal',
-        title: '工作目标',
+        title: '公共人员工作目标',
         roles: [ROLE.ADMIN, ROLE.LEADER],
         element: <WorkGoalPage />,
       },

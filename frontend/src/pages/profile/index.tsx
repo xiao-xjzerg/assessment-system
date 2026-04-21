@@ -29,6 +29,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { resultApi } from '@/services/api/result';
 import { scoreApi } from '@/services/api/score';
+import { evaluationApi } from '@/services/api/evaluation';
 import type { FinalResult, ScoreSummary } from '@/types';
 import { useUserStore } from '@/stores/userStore';
 import { useCycleStore } from '@/stores/cycleStore';
@@ -47,6 +48,9 @@ export default function ProfilePage() {
   // 本人积分汇总
   const [scoreSummary, setScoreSummary] = useState<ScoreSummary | null>(null);
   const [scoreLoading, setScoreLoading] = useState(false);
+
+  // 工作目标评语（多位领导合并：XXX：评语\nXXX：评语），仅在成绩已计算后拉取
+  const [workGoalComments, setWorkGoalComments] = useState<string>('');
 
   const loadMyResult = useCallback(async () => {
     if (!user) return;
@@ -80,6 +84,30 @@ export default function ProfilePage() {
     loadMyResult();
     loadMyScore();
   }, [loadMyResult, loadMyScore]);
+
+  // 成绩已计算（result 非空）时，再拉工作目标评语
+  useEffect(() => {
+    if (!result) {
+      setWorkGoalComments('');
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await evaluationApi.listWorkGoals();
+        const merged = list
+          .filter((s) => s.comment && s.comment.trim().length > 0)
+          .map((s) => `${s.leader_name || '未知领导'}：${s.comment}`)
+          .join('\n');
+        if (!cancelled) setWorkGoalComments(merged);
+      } catch {
+        if (!cancelled) setWorkGoalComments('');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [result]);
 
   if (!user) return null;
 
@@ -234,6 +262,14 @@ export default function ProfilePage() {
                     <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--neu-bg, #f5f5f5)', borderRadius: 8 }}>
                       <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>领导评语</div>
                       <div>{result.leader_comment}</div>
+                    </div>
+                  )}
+                  {workGoalComments && (
+                    <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--neu-bg, #f5f5f5)', borderRadius: 8 }}>
+                      <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>评语</div>
+                      <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        {workGoalComments}
+                      </div>
                     </div>
                   )}
                 </>

@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import ROLE_ADMIN, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from app.config import ROLE_ADMIN, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, ADMIN_PHONE
 from app.database import get_db
 from app.dependencies import get_current_user, require_roles
 from app.models.employee import Employee
@@ -132,6 +132,9 @@ async def create_employee(
 
     cycle = await _get_active_cycle(db)
 
+    if body.phone == ADMIN_PHONE:
+        raise HTTPException(status_code=400, detail=f"手机号 {ADMIN_PHONE} 为系统保留账号，不可使用")
+
     # 检查手机号重复
     existing = await db.execute(
         select(Employee).where(
@@ -175,6 +178,8 @@ async def update_employee(
     emp = result.scalar_one_or_none()
     if emp is None:
         raise HTTPException(status_code=404, detail="员工不存在")
+    if emp.phone == ADMIN_PHONE:
+        raise HTTPException(status_code=403, detail="系统管理员账号受保护，不可修改")
 
     update_data = body.model_dump(exclude_unset=True)
 
@@ -209,6 +214,8 @@ async def delete_employee(
     emp = result.scalar_one_or_none()
     if emp is None:
         raise HTTPException(status_code=404, detail="员工不存在")
+    if emp.phone == ADMIN_PHONE:
+        raise HTTPException(status_code=403, detail="系统管理员账号受保护，不可删除")
     await db.delete(emp)
     await db.flush()
     return ResponseModel(message="删除成功")

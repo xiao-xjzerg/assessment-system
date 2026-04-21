@@ -29,7 +29,7 @@ export interface LoginResponse {
   user_id: number;
   name: string;
   role: string;
-  assess_type: string;
+  assess_type: string | null;
   department: string;
   /** 是否在当前周期担任项目经理（派生角色，基于项目一览表 pm_id） */
   is_pm: boolean;
@@ -69,7 +69,7 @@ export interface Employee {
   grade: string | null;
   phone: string;
   role: string;
-  assess_type: string;
+  assess_type: string | null;
   is_active: boolean;
   status: string | null;
   rating: string | null;
@@ -86,7 +86,7 @@ export interface EmployeeCreate {
   grade?: string | null;
   phone: string;
   role: string;
-  assess_type: string;
+  assess_type?: string | null;
 }
 
 export type EmployeeUpdate = Partial<EmployeeCreate> & {
@@ -108,6 +108,7 @@ export interface EmployeeListQuery {
 export interface ImportResult {
   success_count: number;
   errors: string[];
+  warnings?: string[];
   [key: string]: unknown;
 }
 
@@ -128,6 +129,8 @@ export interface Project {
   project_profit: number | string;
   self_dev_income: number | string;
   product_contract_amount: number | string;
+  current_period_profit: number | string;
+  current_period_self_dev_income: number | string;
   presale_progress: number | string;
   delivery_progress: number | string;
   used_presale_progress: number | string;
@@ -155,6 +158,8 @@ export interface ProjectCreate {
   project_profit?: number | string;
   self_dev_income?: number | string;
   product_contract_amount?: number | string;
+  current_period_profit?: number | string;
+  current_period_self_dev_income?: number | string;
   presale_progress?: number | string;
   delivery_progress?: number | string;
   pm_name?: string | null;
@@ -342,6 +347,10 @@ export interface ScoreSummary {
   transform_score_total: number | string;
   total_score: number | string;
   normalized_score: number | string;
+  /** 归一化满分：基层管理人员=30，业务/研发=50，公共人员=null */
+  normalize_full_mark: number | string | null;
+  /** 归一化基准最大积分：基层管理=全类型最高，业务/研发=同部门同类型最高，公共人员=null */
+  normalize_base_max: number | string | null;
 }
 
 // ==================== 360 评价 ====================
@@ -419,6 +428,7 @@ export interface WorkGoalScore {
   cycle_id: number;
   employee_id: number;
   leader_id: number;
+  leader_name?: string | null;
   score: number | string;
   comment: string | null;
 }
@@ -457,6 +467,18 @@ export interface EconomicDetail {
   score: number;
 }
 
+export interface EconomicBreakdownItem {
+  project_name: string;
+  indicator_type: string;
+  raw_value: number;
+  participation_coeff: number;
+  completed_value: number;
+  target_value: number;
+  indicator_coeff: number;
+  full_mark: number;
+  score: number;
+}
+
 export interface EconomicSummary {
   employee_id: number;
   employee_name: string;
@@ -465,6 +487,8 @@ export interface EconomicSummary {
   grade: string | null;
   assess_type: string;
   total_score: number;
+  /** 参与总分计算的各条明细（用于 Tooltip 展示公式） */
+  breakdown?: EconomicBreakdownItem[];
 }
 
 // ==================== 加减分 & 重点任务 ====================

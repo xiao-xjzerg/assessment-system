@@ -22,6 +22,7 @@ import {
   Modal,
   Form,
   Dropdown,
+  Tooltip,
   App as AntdApp,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -187,6 +188,36 @@ export default function ResultPage() {
   const numericSorter = (key: keyof FinalResult) =>
     (a: FinalResult, b: FinalResult) => Number(a[key]) - Number(b[key]);
 
+  // 按考核类型拼出总分计算公式，填入本行实际数值
+  const buildTotalFormula = (r: FinalResult): string => {
+    const fmt = (v: number | string) => formatNumber(Number(v));
+    const bonus = Number(r.bonus_score);
+    const bonusStr = bonus >= 0 ? `+ ${fmt(bonus)}` : `- ${fmt(Math.abs(bonus))}`;
+    const total = fmt(r.total_score);
+    switch (r.assess_type) {
+      case '基层管理人员':
+        return (
+          `总分 = 工作积分 + 经济指标 + 重点任务 + 综合评价 + 加减分\n` +
+          `     = ${fmt(r.work_score)} + ${fmt(r.economic_score)} + ${fmt(r.key_task_score)} + ${fmt(r.eval_score)} ${bonusStr}\n` +
+          `     = ${total}`
+        );
+      case '公共人员':
+        return (
+          `总分 = 工作目标完成度 + 综合评价 + 加减分\n` +
+          `     = ${fmt(r.work_goal_score)} + ${fmt(r.eval_score)} ${bonusStr}\n` +
+          `     = ${total}`
+        );
+      case '业务人员':
+      case '产品研发人员':
+      default:
+        return (
+          `总分 = 工作积分 + 经济指标 + 综合评价 + 加减分\n` +
+          `     = ${fmt(r.work_score)} + ${fmt(r.economic_score)} + ${fmt(r.eval_score)} ${bonusStr}\n` +
+          `     = ${total}`
+        );
+    }
+  };
+
   const columns: ColumnsType<FinalResult> = [
     { title: '姓名', dataIndex: 'employee_name', width: 90, fixed: 'left' },
     { title: '部门', dataIndex: 'department', width: 100 },
@@ -225,6 +256,15 @@ export default function ResultPage() {
       },
     },
     {
+      title: '综合评价',
+      dataIndex: 'eval_score',
+      width: 110,
+      align: 'right',
+      sorter: numericSorter('eval_score'),
+      sortDirections: ['descend', 'ascend'],
+      render: (v: number | string) => `${formatNumber(Number(v))}/30`,
+    },
+    {
       title: '加减分',
       dataIndex: 'bonus_score',
       width: 100,
@@ -242,10 +282,16 @@ export default function ResultPage() {
       dataIndex: 'total_score',
       width: 100,
       align: 'right',
+      fixed: 'right',
       sorter: numericSorter('total_score'),
       sortDirections: ['descend', 'ascend'],
-      render: (v: number | string) => (
-        <span style={{ fontWeight: 700, fontSize: 14 }}>{formatNumber(Number(v))}</span>
+      render: (v: number | string, record: FinalResult) => (
+        <Tooltip
+          title={<pre style={{ margin: 0, fontFamily: 'inherit', whiteSpace: 'pre-wrap' }}>{buildTotalFormula(record)}</pre>}
+          overlayStyle={{ maxWidth: 420 }}
+        >
+          <span style={{ fontWeight: 700, fontSize: 14, cursor: 'help' }}>{formatNumber(Number(v))}</span>
+        </Tooltip>
       ),
     },
     {
@@ -356,7 +402,7 @@ export default function ResultPage() {
           columns={columns}
           dataSource={results}
           loading={loading}
-          scroll={{ x: 1500 }}
+          scroll={{ x: 1700 }}
           size="middle"
           pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
         />

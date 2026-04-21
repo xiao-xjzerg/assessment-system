@@ -23,6 +23,8 @@ class Project(Base):
     project_profit = Column(Numeric(14, 2), default=0, comment="项目利润（万元）")
     self_dev_income = Column(Numeric(14, 2), default=0, comment="自研收入（万元）")
     product_contract_amount = Column(Numeric(14, 2), default=0, comment="产品合同金额（万元）")
+    current_period_profit = Column(Numeric(14, 2), default=0, comment="当期确认项目利润（万元）")
+    current_period_self_dev_income = Column(Numeric(14, 2), default=0, comment="当期确认自研收入（万元）")
     presale_progress = Column(Numeric(6, 4), default=0, comment="售前活动进度系数")
     delivery_progress = Column(Numeric(6, 4), default=0, comment="交付活动进度系数")
     used_presale_progress = Column(Numeric(6, 4), default=0, comment="已使用进度系数-售前活动")

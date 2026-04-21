@@ -16,6 +16,7 @@ from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectOut
 from app.schemas.common import ResponseModel, PaginatedData
 from app.services.project_service import (
     get_projects, import_projects, reimport_projects, calc_project_coefficients,
+    normalize_signing_probability,
 )
 from app.services.excel_service import parse_project_excel, generate_project_template
 
@@ -78,7 +79,10 @@ async def import_excel(
 
     if result["errors"]:
         return ResponseModel(code=400, message="导入失败", data=result)
-    return ResponseModel(message=f"成功导入 {result['success_count']} 个项目", data=result)
+    msg = f"成功导入 {result['success_count']} 个项目"
+    if result.get("warnings"):
+        msg += "；存在警告，请查看详情"
+    return ResponseModel(message=msg, data=result)
 
 
 # ---- 列表查询 ----
@@ -169,13 +173,15 @@ async def create_project(
         project_profit=body.project_profit,
         self_dev_income=body.self_dev_income,
         product_contract_amount=body.product_contract_amount,
+        current_period_profit=body.current_period_profit,
+        current_period_self_dev_income=body.current_period_self_dev_income,
         presale_progress=body.presale_progress,
         delivery_progress=body.delivery_progress,
         pm_id=pm_id,
         pm_name=body.pm_name,
         signing_probability=Decimal("1"),
     )
-    calc_project_coefficients(proj)
+    await calc_project_coefficients(db, proj)
     db.add(proj)
     await db.flush()
     return ResponseModel(data=_project_out(proj).model_dump())
@@ -196,6 +202,11 @@ async def update_project(
         raise HTTPException(status_code=404, detail="项目不存在")
 
     update_data = body.model_dump(exclude_unset=True)
+    # 签约概率兼容：>1 视为百分比自动 /100
+    if "signing_probability" in update_data and update_data["signing_probability"] is not None:
+        update_data["signing_probability"] = normalize_signing_probability(
+            update_data["signing_probability"]
+        )
     for field, value in update_data.items():
         setattr(proj, field, value)
 
@@ -216,7 +227,7 @@ async def update_project(
     # 重新计算系数（如果相关字段有变化）
     recalc_fields = {"project_profit", "project_type", "signing_probability", "contract_amount"}
     if recalc_fields & set(update_data.keys()):
-        calc_project_coefficients(proj)
+        await calc_project_coefficients(db, proj)
 
     db.add(proj)
     await db.flush()

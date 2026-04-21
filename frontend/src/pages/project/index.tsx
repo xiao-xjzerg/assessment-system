@@ -52,9 +52,7 @@ import type {
   ImportResult,
 } from '@/types';
 import {
-  ALL_DEPARTMENTS,
   IMPL_METHODS,
-  PROJECT_TYPES,
   DEFAULT_PAGE_SIZE,
   PAGE_SIZE_OPTIONS,
 } from '@/utils/constants';
@@ -72,6 +70,8 @@ interface FormValues {
   project_profit?: number;
   self_dev_income?: number;
   product_contract_amount?: number;
+  current_period_profit?: number;
+  current_period_self_dev_income?: number;
   presale_progress?: number;
   delivery_progress?: number;
   pm_name?: string;
@@ -112,6 +112,18 @@ export default function ProjectPage() {
   const [spSaving, setSpSaving] = useState(false);
   const [spList, setSpList] = useState<Project[]>([]);
   const [spProbMap, setSpProbMap] = useState<Record<number, number>>({});
+
+  // 项目类型下拉来源：当前周期的「项目类型系数表」，由管理员在考核参数页维护
+  const [projectTypeOptions, setProjectTypeOptions] = useState<string[]>([]);
+
+  useEffect(() => {
+    parameterApi
+      .listProjectTypeCoeffs()
+      .then((list) =>
+        setProjectTypeOptions(list.map((c) => c.project_type))
+      )
+      .catch(() => undefined);
+  }, []);
 
   const fetchList = useCallback(async () => {
     setLoading(true);
@@ -156,6 +168,8 @@ export default function ProjectPage() {
         project_profit: 0,
         self_dev_income: 0,
         product_contract_amount: 0,
+        current_period_profit: 0,
+        current_period_self_dev_income: 0,
         presale_progress: 0,
         delivery_progress: 0,
       };
@@ -175,6 +189,8 @@ export default function ProjectPage() {
       project_profit: Number(editing.project_profit) || 0,
       self_dev_income: Number(editing.self_dev_income) || 0,
       product_contract_amount: Number(editing.product_contract_amount) || 0,
+      current_period_profit: Number(editing.current_period_profit) || 0,
+      current_period_self_dev_income: Number(editing.current_period_self_dev_income) || 0,
       presale_progress: Number(editing.presale_progress) || 0,
       delivery_progress: Number(editing.delivery_progress) || 0,
       pm_name: editing.pm_name ?? undefined,
@@ -200,6 +216,8 @@ export default function ProjectPage() {
         project_profit: values.project_profit ?? 0,
         self_dev_income: values.self_dev_income ?? 0,
         product_contract_amount: values.product_contract_amount ?? 0,
+        current_period_profit: values.current_period_profit ?? 0,
+        current_period_self_dev_income: values.current_period_self_dev_income ?? 0,
         presale_progress: values.presale_progress ?? 0,
         delivery_progress: values.delivery_progress ?? 0,
         pm_name: values.pm_name || null,
@@ -285,6 +303,19 @@ export default function ProjectPage() {
               {result.errors.map((e, i) => (
                 <div key={i} style={{ fontSize: 12 }}>
                   {e}
+                </div>
+              ))}
+            </div>
+          ),
+        });
+      } else if (result.warnings && result.warnings.length > 0) {
+        modal.warning({
+          title: '导入成功，存在提示',
+          content: (
+            <div style={{ maxHeight: 320, overflow: 'auto' }}>
+              {result.warnings.map((w, i) => (
+                <div key={i} style={{ fontSize: 12, lineHeight: 1.6 }}>
+                  {w}
                 </div>
               ))}
             </div>
@@ -391,6 +422,20 @@ export default function ProjectPage() {
         title: '利润(万)',
         dataIndex: 'project_profit',
         width: 110,
+        align: 'right',
+        render: (v) => formatMoney(v),
+      },
+      {
+        title: '当期确认利润(万)',
+        dataIndex: 'current_period_profit',
+        width: 140,
+        align: 'right',
+        render: (v) => formatMoney(v),
+      },
+      {
+        title: '当期确认自研收入(万)',
+        dataIndex: 'current_period_self_dev_income',
+        width: 160,
         align: 'right',
         render: (v) => formatMoney(v),
       },
@@ -507,23 +552,25 @@ export default function ProjectPage() {
           <Select
             placeholder="项目类型"
             allowClear
-            style={{ width: 140 }}
+            style={{ width: 160 }}
             value={filter.project_type}
-            options={PROJECT_TYPES.map((t) => ({ label: t, value: t }))}
+            options={projectTypeOptions.map((t) => ({ label: t, value: t }))}
             onChange={(v) => {
               setFilter((f) => ({ ...f, project_type: v }));
               setPage(1);
             }}
           />
-          <Select
+          <Input
             placeholder="主承部门"
             allowClear
-            style={{ width: 140 }}
+            style={{ width: 160 }}
             value={filter.department}
-            options={ALL_DEPARTMENTS.map((d) => ({ label: d, value: d }))}
-            onChange={(v) => {
-              setFilter((f) => ({ ...f, department: v }));
+            onChange={(e) =>
+              setFilter((f) => ({ ...f, department: e.target.value }))
+            }
+            onPressEnter={() => {
               setPage(1);
+              fetchList();
             }}
           />
           <Select
@@ -563,7 +610,7 @@ export default function ProjectPage() {
           loading={loading}
           dataSource={data}
           columns={columns}
-          scroll={{ x: 1500 }}
+          scroll={{ x: 1800 }}
           pagination={{
             current: page,
             pageSize,
@@ -640,8 +687,9 @@ export default function ProjectPage() {
               style={{ flex: 1, marginRight: 8 }}
             >
               <Select
-                placeholder="项目类型"
-                options={PROJECT_TYPES.map((t) => ({ label: t, value: t }))}
+                placeholder="请在考核参数页维护项目类型系数表"
+                options={projectTypeOptions.map((t) => ({ label: t, value: t }))}
+                notFoundContent="请先在考核参数页配置项目类型系数"
               />
             </Form.Item>
             <Form.Item label="实施方式" name="impl_method" style={{ flex: 1 }}>
@@ -659,11 +707,7 @@ export default function ProjectPage() {
               name="department"
               style={{ flex: 1, marginRight: 8 }}
             >
-              <Select
-                allowClear
-                placeholder="主承部门"
-                options={ALL_DEPARTMENTS.map((d) => ({ label: d, value: d }))}
-              />
+              <Input placeholder="主承部门" maxLength={50} />
             </Form.Item>
             <Form.Item label="项目经理" name="pm_name" style={{ flex: 1 }}>
               <Input placeholder="项目经理姓名" maxLength={50} />
@@ -723,6 +767,34 @@ export default function ProjectPage() {
             <Form.Item
               label="产品合同金额(万元)"
               name="product_contract_amount"
+              style={{ flex: 1 }}
+            >
+              <InputNumber
+                min={0}
+                step={1}
+                precision={2}
+                style={{ width: '100%' }}
+                placeholder="0.00"
+              />
+            </Form.Item>
+          </Space.Compact>
+
+          <Space.Compact block>
+            <Form.Item
+              label="当期确认项目利润(万元)"
+              name="current_period_profit"
+              style={{ flex: 1, marginRight: 8 }}
+            >
+              <InputNumber
+                step={1}
+                precision={2}
+                style={{ width: '100%' }}
+                placeholder="0.00"
+              />
+            </Form.Item>
+            <Form.Item
+              label="当期确认自研收入(万元)"
+              name="current_period_self_dev_income"
               style={{ flex: 1 }}
             >
               <InputNumber

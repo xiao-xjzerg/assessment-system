@@ -18,6 +18,8 @@ class ProjectCreate(BaseModel):
     project_profit: Decimal = Field(default=Decimal("0"), description="项目利润（万元）")
     self_dev_income: Decimal = Field(default=Decimal("0"), description="自研收入（万元）")
     product_contract_amount: Decimal = Field(default=Decimal("0"), description="产品合同金额（万元）")
+    current_period_profit: Decimal = Field(default=Decimal("0"), description="当期确认项目利润（万元）")
+    current_period_self_dev_income: Decimal = Field(default=Decimal("0"), description="当期确认自研收入（万元）")
     presale_progress: Decimal = Field(default=Decimal("0"), description="售前活动进度系数")
     delivery_progress: Decimal = Field(default=Decimal("0"), description="交付活动进度系数")
     pm_name: Optional[str] = Field(None, description="项目经理姓名")
@@ -36,6 +38,8 @@ class ProjectUpdate(BaseModel):
     project_profit: Optional[Decimal] = None
     self_dev_income: Optional[Decimal] = None
     product_contract_amount: Optional[Decimal] = None
+    current_period_profit: Optional[Decimal] = None
+    current_period_self_dev_income: Optional[Decimal] = None
     presale_progress: Optional[Decimal] = None
     delivery_progress: Optional[Decimal] = None
     pm_name: Optional[str] = None
@@ -59,6 +63,8 @@ class ProjectOut(BaseModel):
     project_profit: Decimal = Decimal("0")
     self_dev_income: Decimal = Decimal("0")
     product_contract_amount: Decimal = Decimal("0")
+    current_period_profit: Decimal = Decimal("0")
+    current_period_self_dev_income: Decimal = Decimal("0")
     presale_progress: Decimal = Decimal("0")
     delivery_progress: Decimal = Decimal("0")
     used_presale_progress: Decimal = Decimal("0")

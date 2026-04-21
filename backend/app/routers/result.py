@@ -145,7 +145,7 @@ async def export_excel(
     headers = [
         "姓名", "部门", "组/中心", "岗位", "岗级", "考核类型",
         "工作积分", "经济指标", "重点任务",
-        "加减分", "总分", "评语",
+        "综合评价", "加减分", "总分", "评语",
     ]
 
     # 按考核类型分组
@@ -162,6 +162,7 @@ async def export_excel(
                 r.position or "", r.grade or "", r.assess_type,
                 float(r.work_score), float(r.economic_score),
                 float(r.key_task_score),
+                float(r.eval_score),
                 float(r.bonus_score), float(r.total_score),
                 r.leader_comment or "",
             ])
@@ -272,7 +273,7 @@ async def export_all_reports(
     ws4.append([
         "姓名", "部门", "组/中心", "岗位", "岗级", "考核类型",
         "工作积分", "经济指标", "重点任务",
-        "加减分", "总分", "评语",
+        "综合评价", "加减分", "总分", "评语",
     ])
     for r in all_results:
         ws4.append([
@@ -280,6 +281,7 @@ async def export_all_reports(
             r.position or "", r.grade or "", r.assess_type,
             float(r.work_score), float(r.economic_score),
             float(r.key_task_score),
+            float(r.eval_score),
             float(r.bonus_score), float(r.total_score),
             r.leader_comment or "",
         ])

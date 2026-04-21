@@ -20,6 +20,7 @@ import {
   Modal,
   InputNumber,
   Tag,
+  Tooltip,
   App as AntdApp,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -314,9 +315,53 @@ export default function ScorePage() {
       dataIndex: 'normalized_score',
       width: 110,
       align: 'right',
-      render: (v: number | string) => (
-        <Tag color="geekblue">{formatNumber(Number(v))}</Tag>
-      ),
+      render: (v: number | string, record: ScoreSummary) => {
+        const total = Number(record.total_score);
+        const fullMark =
+          record.normalize_full_mark !== null && record.normalize_full_mark !== undefined
+            ? Number(record.normalize_full_mark)
+            : null;
+        const baseMax =
+          record.normalize_base_max !== null && record.normalize_base_max !== undefined
+            ? Number(record.normalize_base_max)
+            : null;
+
+        let formula = '';
+        if (record.assess_type === '基层管理人员' && fullMark && baseMax) {
+          formula =
+            `基层管理人员公式：\n` +
+            `归一化得分 = 30 × √(个人总积分) / √(全类型最高积分)\n` +
+            `         = 30 × √${formatNumber(total)} / √${formatNumber(baseMax)}\n` +
+            `         = ${formatNumber(Number(v))}`;
+        } else if (
+          (record.assess_type === '业务人员' || record.assess_type === '产品研发人员') &&
+          fullMark &&
+          baseMax
+        ) {
+          formula =
+            `${record.assess_type}公式：\n` +
+            `归一化得分 = 50 × √(个人总积分) / √(同部门同类型最高积分)\n` +
+            `         = 50 × √${formatNumber(total)} / √${formatNumber(baseMax)}\n` +
+            `         = ${formatNumber(Number(v))}`;
+        } else if (record.assess_type === '公共人员') {
+          formula = `公共人员不参与积分归一化（最终成绩使用"工作目标完成度(70分)"替代）`;
+        } else {
+          formula = `暂无归一化基准数据`;
+        }
+
+        return (
+          <Tooltip
+            title={
+              <pre style={{ margin: 0, fontFamily: 'inherit', whiteSpace: 'pre-wrap' }}>
+                {formula}
+              </pre>
+            }
+            overlayStyle={{ maxWidth: 460 }}
+          >
+            <Tag color="geekblue" style={{ cursor: 'help' }}>{formatNumber(Number(v))}</Tag>
+          </Tooltip>
+        );
+      },
     },
   ];
 

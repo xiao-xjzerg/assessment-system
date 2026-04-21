@@ -334,6 +334,7 @@ async def list_public_employees(
     try:
         employees = await get_public_employees_for_leader(
             db, cycle.id, current_user.id,
+            all_departments=(current_user.role == ROLE_ADMIN),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -393,5 +394,17 @@ async def list_work_goals(
             employee_id=current_user.id,
         )
 
-    data = [WorkGoalScoreOut.model_validate(i).model_dump() for i in items]
+    leader_ids = {i.leader_id for i in items}
+    leader_name_map: dict[int, str] = {}
+    if leader_ids:
+        leader_result = await db.execute(
+            select(Employee).where(Employee.id.in_(leader_ids))
+        )
+        leader_name_map = {e.id: e.name for e in leader_result.scalars().all()}
+
+    data = []
+    for i in items:
+        row = WorkGoalScoreOut.model_validate(i).model_dump()
+        row["leader_name"] = leader_name_map.get(i.leader_id)
+        data.append(row)
     return ResponseModel(data=data)

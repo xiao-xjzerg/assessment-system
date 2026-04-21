@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import ROLE_ADMIN, ROLE_PM
+from app.config import ROLE_ADMIN, ROLE_PM, ROLE_LEADER
 from app.database import get_db
 from app.dependencies import get_current_user, require_roles
 from app.models.employee import Employee
@@ -37,12 +37,12 @@ async def _get_active_cycle(db: AsyncSession) -> Cycle:
 @router.get("/my-projects", response_model=ResponseModel)
 async def list_my_projects(
     db: AsyncSession = Depends(get_db),
-    current_user: Employee = Depends(require_roles([ROLE_PM, ROLE_ADMIN])),
+    current_user: Employee = Depends(require_roles([ROLE_PM, ROLE_ADMIN, ROLE_LEADER])),
 ):
     """获取当前项目经理负责的项目列表"""
     cycle = await _get_active_cycle(db)
-    if current_user.role == ROLE_ADMIN:
-        # 管理员看所有项目
+    if current_user.role in (ROLE_ADMIN, ROLE_LEADER):
+        # 管理员/领导看所有项目
         result = await db.execute(
             select(Project).where(Project.cycle_id == cycle.id).order_by(Project.id)
         )
@@ -60,13 +60,13 @@ async def list_my_projects(
 async def list_by_project(
     project_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: Employee = Depends(require_roles([ROLE_PM, ROLE_ADMIN])),
+    current_user: Employee = Depends(require_roles([ROLE_PM, ROLE_ADMIN, ROLE_LEADER])),
 ):
     """获取某项目的参与度记录"""
     cycle = await _get_active_cycle(db)
 
-    # 非管理员（即派生 PM）只能查看自己负责的项目
-    if current_user.role != ROLE_ADMIN:
+    # 管理员/领导可查看任意项目，派生 PM 只能查看自己负责的项目
+    if current_user.role not in (ROLE_ADMIN, ROLE_LEADER):
         proj_result = await db.execute(
             select(Project).where(Project.id == project_id)
         )
@@ -86,9 +86,9 @@ async def list_all(
     department: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: Employee = Depends(require_roles([ROLE_ADMIN])),
+    current_user: Employee = Depends(require_roles([ROLE_ADMIN, ROLE_LEADER])),
 ):
-    """管理员查看所有参与度记录"""
+    """管理员/领导查看所有参与度记录"""
     cycle = await _get_active_cycle(db)
     items = await get_participations_by_cycle(db, cycle.id, project_id, department, status)
     data = [ParticipationOut.model_validate(i).model_dump() for i in items]
@@ -101,13 +101,13 @@ async def save(
     body: ParticipationSave,
     submit: bool = Query(False, description="是否提交（true=提交，false=仅保存）"),
     db: AsyncSession = Depends(get_db),
-    current_user: Employee = Depends(require_roles([ROLE_PM, ROLE_ADMIN])),
+    current_user: Employee = Depends(require_roles([ROLE_PM, ROLE_ADMIN, ROLE_LEADER])),
 ):
     """保存或提交项目参与度"""
     cycle = await _get_active_cycle(db)
 
-    # 非管理员（即派生 PM）只能填自己负责的项目
-    if current_user.role != ROLE_ADMIN:
+    # 管理员/领导可填任意项目，派生 PM 只能填自己负责的项目
+    if current_user.role not in (ROLE_ADMIN, ROLE_LEADER):
         proj_result = await db.execute(
             select(Project).where(Project.id == body.project_id)
         )
@@ -132,7 +132,7 @@ async def save(
 async def remove(
     participation_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: Employee = Depends(require_roles([ROLE_PM, ROLE_ADMIN])),
+    current_user: Employee = Depends(require_roles([ROLE_PM, ROLE_ADMIN, ROLE_LEADER])),
 ):
     """删除单条参与度记录"""
     try:
@@ -146,7 +146,7 @@ async def remove(
 @router.get("/summary", response_model=ResponseModel)
 async def participation_summary(
     db: AsyncSession = Depends(get_db),
-    current_user: Employee = Depends(require_roles([ROLE_ADMIN])),
+    current_user: Employee = Depends(require_roles([ROLE_ADMIN, ROLE_LEADER])),
 ):
     """获取参与度填报概览"""
     cycle = await _get_active_cycle(db)
