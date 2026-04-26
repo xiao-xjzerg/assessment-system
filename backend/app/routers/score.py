@@ -7,7 +7,12 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import ROLE_ADMIN, ROLE_EMPLOYEE, ROLE_PM, ROLE_LEADER
+from decimal import Decimal
+
+from app.config import (
+    ROLE_ADMIN, ROLE_EMPLOYEE, ROLE_PM, ROLE_LEADER,
+    ASSESS_TYPE_MANAGER, ASSESS_TYPE_BUSINESS, ASSESS_TYPE_RD,
+)
 from app.database import get_db
 from app.dependencies import get_current_user, require_roles
 from app.models.employee import Employee
@@ -68,7 +73,7 @@ async def list_details(
             phase=phase,
             department=department,
         )
-    elif current_user.role == ROLE_PM:
+    elif current_user.is_pm:
         # 项目经理可以看自己负责项目的积分明细
         items = await get_score_details(
             db, cycle.id,
@@ -136,7 +141,32 @@ async def list_summary(
             employee_name=current_user.name,
         )
 
-    data = [ScoreSummaryOut.model_validate(i).model_dump() for i in items]
+    # 为每条记录附加归一化公式所需的 max 基准值 & 满分值（前端 Tooltip 用）
+    # 基准计算依赖"全部员工"的积分分布，不能只在过滤后的列表中取 max
+    all_items = await get_score_summaries(db, cycle.id)
+    all_max = max((float(s.total_score) for s in all_items), default=0.0)
+    group_max: dict[str, float] = {}
+    for s in all_items:
+        key = f"{s.department}_{s.assess_type}"
+        current = float(s.total_score)
+        if current > group_max.get(key, 0.0):
+            group_max[key] = current
+
+    data = []
+    for i in items:
+        row = ScoreSummaryOut.model_validate(i).model_dump()
+        if i.assess_type == ASSESS_TYPE_MANAGER:
+            row["normalize_full_mark"] = Decimal("30")
+            row["normalize_base_max"] = Decimal(str(round(all_max, 2)))
+        elif i.assess_type in (ASSESS_TYPE_BUSINESS, ASSESS_TYPE_RD):
+            row["normalize_full_mark"] = Decimal("50")
+            dept_max = group_max.get(f"{i.department}_{i.assess_type}", 0.0)
+            row["normalize_base_max"] = Decimal(str(round(dept_max, 2)))
+        else:
+            # 公共人员不走积分归一化
+            row["normalize_full_mark"] = None
+            row["normalize_base_max"] = None
+        data.append(row)
     return ResponseModel(data=data)
 
 

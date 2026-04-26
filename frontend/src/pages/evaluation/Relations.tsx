@@ -8,7 +8,7 @@
  *   - 导出互评关系 Excel
  *   - 评价进度统计卡片
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Card,
   Table,
@@ -128,20 +128,23 @@ export default function RelationsPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [editLoading, setEditLoading] = useState(false);
 
+  // 预填策略：Modal 使用 destroyOnClose，Form 每次打开时重新挂载并读取 initialValues。
   const openEdit = async (record: EvalRelation) => {
     setEditingRelation(record);
-    editForm.setFieldsValue({
-      evaluator_id: record.evaluator_id,
-    });
     setEditOpen(true);
     // 加载员工列表用于选择
     try {
-      const res = await employeeApi.list({ page_size: 500 });
-      setEmployees(res.items);
+      const res = await employeeApi.fetchAll();
+      setEmployees(res);
     } catch {
       message.error('加载员工列表失败');
     }
   };
+
+  const editInitialValues = useMemo(() => {
+    if (!editingRelation) return undefined;
+    return { evaluator_id: editingRelation.evaluator_id };
+  }, [editingRelation]);
 
   const handleEditSubmit = async () => {
     try {
@@ -240,8 +243,8 @@ export default function RelationsPage() {
                 评价进度
               </div>
               <Progress
-                percent={Math.round(progress.progress * 100)}
-                status={progress.progress >= 1 ? 'success' : 'active'}
+                percent={Math.round(progress.progress * 10) / 10}
+                status={progress.progress >= 100 ? 'success' : 'active'}
                 strokeColor={{ from: '#108ee9', to: '#87d068' }}
               />
             </Col>
@@ -329,7 +332,7 @@ export default function RelationsPage() {
             评价人类型：<Tag>{editingRelation.evaluator_type}</Tag>
           </div>
         )}
-        <Form form={editForm} layout="vertical">
+        <Form form={editForm} layout="vertical" preserve={false} initialValues={editInitialValues}>
           <Form.Item
             label="新评价人"
             name="evaluator_id"

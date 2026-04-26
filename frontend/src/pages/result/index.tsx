@@ -3,14 +3,14 @@
  *
  * 功能：
  *   - 触发最终成绩全量计算
- *   - 成绩列表查询（按部门/考核类型/员工筛选）
- *   - 设置评定等级（管理员）
+ *   - 成绩列表查询（按部门/组中心/岗位/考核类型/员工筛选）
+ *   - 总分/工作积分/经济指标/加减分 列点表头排序
  *   - 编辑领导评语（管理员/领导）
  *   - 导出成绩总表（按类型分Sheet）
  *   - 全量导出（4 Sheet）
  *   - 确认考核完成并归档
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Card,
   Table,
@@ -22,6 +22,7 @@ import {
   Modal,
   Form,
   Dropdown,
+  Tooltip,
   App as AntdApp,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -32,11 +33,10 @@ import {
   CheckCircleOutlined,
   SearchOutlined,
   EditOutlined,
-  TrophyOutlined,
 } from '@ant-design/icons';
 import { resultApi } from '@/services/api/result';
 import type { FinalResult } from '@/types';
-import { ALL_DEPARTMENTS, ALL_ASSESS_TYPES, RATING_LEVELS } from '@/utils/constants';
+import { ALL_DEPARTMENTS, ALL_ASSESS_TYPES } from '@/utils/constants';
 import { formatNumber, downloadBlob, extractFilename } from '@/utils/format';
 import { useUserStore } from '@/stores/userStore';
 
@@ -49,6 +49,8 @@ export default function ResultPage() {
   const [filter, setFilter] = useState<{
     employee_name?: string;
     department?: string;
+    group_name?: string;
+    position?: string;
     assess_type?: string;
   }>({});
 
@@ -58,6 +60,8 @@ export default function ResultPage() {
       const params: Record<string, string | undefined> = {};
       if (filter.employee_name) params.employee_name = filter.employee_name;
       if (filter.department) params.department = filter.department;
+      if (filter.group_name) params.group_name = filter.group_name;
+      if (filter.position) params.position = filter.position;
       if (filter.assess_type) params.assess_type = filter.assess_type;
       const res = await resultApi.list(params);
       setResults(res);
@@ -71,6 +75,19 @@ export default function ResultPage() {
   useEffect(() => {
     loadResults();
   }, [loadResults]);
+
+  // 用于「组/中心」「岗位」筛选下拉的选项（基于当前已加载的结果去重）
+  const groupOptions = useMemo(() => {
+    const set = new Set<string>();
+    results.forEach((r) => r.group_name && set.add(r.group_name));
+    return Array.from(set).map((v) => ({ label: v, value: v }));
+  }, [results]);
+
+  const positionOptions = useMemo(() => {
+    const set = new Set<string>();
+    results.forEach((r) => r.position && set.add(r.position));
+    return Array.from(set).map((v) => ({ label: v, value: v }));
+  }, [results]);
 
   // ==================== 触发计算 ====================
   const [calculating, setCalculating] = useState(false);
@@ -135,34 +152,22 @@ export default function ResultPage() {
     });
   };
 
-  // ==================== 设置评定等级 ====================
-  const handleSetRating = (record: FinalResult, rating: string) => {
-    modal.confirm({
-      title: '设置评定等级',
-      content: `确认将 ${record.employee_name} 的评定等级设为「${rating}」？`,
-      onOk: async () => {
-        try {
-          await resultApi.setRating(record.id, rating);
-          message.success('设置成功');
-          loadResults();
-        } catch {
-          message.error('设置失败');
-        }
-      },
-    });
-  };
-
   // ==================== 编辑评语 Modal ====================
   const [commentOpen, setCommentOpen] = useState(false);
   const [commentRecord, setCommentRecord] = useState<FinalResult | null>(null);
   const [commentForm] = Form.useForm();
   const [commentLoading, setCommentLoading] = useState(false);
 
+  // 预填策略：Modal 使用 destroyOnClose，Form 每次打开时重新挂载并读取 initialValues。
   const openComment = (record: FinalResult) => {
     setCommentRecord(record);
-    commentForm.setFieldsValue({ leader_comment: record.leader_comment || '' });
     setCommentOpen(true);
   };
+
+  const commentInitialValues = useMemo(() => {
+    if (!commentRecord) return undefined;
+    return { leader_comment: commentRecord.leader_comment || '' };
+  }, [commentRecord]);
 
   const handleCommentSubmit = async () => {
     try {
@@ -180,32 +185,70 @@ export default function ResultPage() {
   };
 
   // ==================== 表列 ====================
+  const numericSorter = (key: keyof FinalResult) =>
+    (a: FinalResult, b: FinalResult) => Number(a[key]) - Number(b[key]);
+
+  // 按考核类型拼出总分计算公式，填入本行实际数值
+  const buildTotalFormula = (r: FinalResult): string => {
+    const fmt = (v: number | string) => formatNumber(Number(v));
+    const bonus = Number(r.bonus_score);
+    const bonusStr = bonus >= 0 ? `+ ${fmt(bonus)}` : `- ${fmt(Math.abs(bonus))}`;
+    const total = fmt(r.total_score);
+    switch (r.assess_type) {
+      case '基层管理人员':
+        return (
+          `总分 = 工作积分 + 经济指标 + 重点任务 + 综合评价 + 加减分\n` +
+          `     = ${fmt(r.work_score)} + ${fmt(r.economic_score)} + ${fmt(r.key_task_score)} + ${fmt(r.eval_score)} ${bonusStr}\n` +
+          `     = ${total}`
+        );
+      case '公共人员':
+        return (
+          `总分 = 工作目标完成度 + 综合评价 + 加减分\n` +
+          `     = ${fmt(r.work_goal_score)} + ${fmt(r.eval_score)} ${bonusStr}\n` +
+          `     = ${total}`
+        );
+      case '业务人员':
+      case '产品研发人员':
+      default:
+        return (
+          `总分 = 工作积分 + 经济指标 + 综合评价 + 加减分\n` +
+          `     = ${fmt(r.work_score)} + ${fmt(r.economic_score)} + ${fmt(r.eval_score)} ${bonusStr}\n` +
+          `     = ${total}`
+        );
+    }
+  };
+
   const columns: ColumnsType<FinalResult> = [
     { title: '姓名', dataIndex: 'employee_name', width: 90, fixed: 'left' },
     { title: '部门', dataIndex: 'department', width: 100 },
-    { title: '组/中心', dataIndex: 'group_name', width: 90, render: (v: string | null) => v || '-' },
-    { title: '岗级', dataIndex: 'grade', width: 60, render: (v: string | null) => v || '-' },
+    { title: '组/中心', dataIndex: 'group_name', width: 110, render: (v: string | null) => v || '-' },
+    { title: '岗位', dataIndex: 'position', width: 110, render: (v: string | null) => v || '-' },
+    { title: '岗级', dataIndex: 'grade', width: 70, render: (v: string | null) => v || '-' },
     { title: '考核类型', dataIndex: 'assess_type', width: 110 },
     {
       title: '工作积分',
       dataIndex: 'work_score',
-      width: 90,
+      width: 110,
       align: 'right',
+      sorter: numericSorter('work_score'),
+      sortDirections: ['descend', 'ascend'],
       render: (v: number | string, r: FinalResult) =>
         `${formatNumber(Number(v))}/${Number(r.work_score_max)}`,
     },
     {
       title: '经济指标',
       dataIndex: 'economic_score',
-      width: 90,
+      width: 110,
       align: 'right',
+      sorter: numericSorter('economic_score'),
+      sortDirections: ['descend', 'ascend'],
       render: (v: number | string, r: FinalResult) =>
         `${formatNumber(Number(v))}/${Number(r.economic_score_max)}`,
     },
     {
       title: '重点任务',
       dataIndex: 'key_task_score',
-      width: 85,
+      width: 100,
       align: 'right',
       render: (v: number | string) => {
         const num = Number(v);
@@ -213,27 +256,21 @@ export default function ResultPage() {
       },
     },
     {
-      title: '工作目标',
-      dataIndex: 'work_goal_score',
-      width: 85,
-      align: 'right',
-      render: (v: number | string) => {
-        const num = Number(v);
-        return num > 0 ? formatNumber(num) + '/70' : '-';
-      },
-    },
-    {
       title: '综合评价',
       dataIndex: 'eval_score',
-      width: 85,
+      width: 110,
       align: 'right',
-      render: (v: number | string) => formatNumber(Number(v)) + '/30',
+      sorter: numericSorter('eval_score'),
+      sortDirections: ['descend', 'ascend'],
+      render: (v: number | string) => `${formatNumber(Number(v))}/30`,
     },
     {
       title: '加减分',
       dataIndex: 'bonus_score',
-      width: 75,
+      width: 100,
       align: 'right',
+      sorter: numericSorter('bonus_score'),
+      sortDirections: ['descend', 'ascend'],
       render: (v: number | string) => {
         const num = Number(v);
         if (num === 0) return '-';
@@ -243,50 +280,23 @@ export default function ResultPage() {
     {
       title: '总分',
       dataIndex: 'total_score',
-      width: 80,
+      width: 100,
       align: 'right',
-      render: (v: number | string) => (
-        <span style={{ fontWeight: 700, fontSize: 14 }}>{formatNumber(Number(v))}</span>
+      fixed: 'right',
+      sorter: numericSorter('total_score'),
+      sortDirections: ['descend', 'ascend'],
+      render: (v: number | string, record: FinalResult) => (
+        <Tooltip
+          title={<pre style={{ margin: 0, fontFamily: 'inherit', whiteSpace: 'pre-wrap' }}>{buildTotalFormula(record)}</pre>}
+          overlayStyle={{ maxWidth: 420 }}
+        >
+          <span style={{ fontWeight: 700, fontSize: 14, cursor: 'help' }}>{formatNumber(Number(v))}</span>
+        </Tooltip>
       ),
     },
     {
-      title: '排名',
-      dataIndex: 'ranking',
-      width: 60,
-      align: 'center',
-      render: (v: number) => v > 0 ? v : '-',
-    },
-    {
-      title: '等级',
-      dataIndex: 'rating',
-      width: 90,
-      align: 'center',
-      render: (v: string | null, record: FinalResult) => {
-        if (!isAdmin) return v ? <Tag>{v}</Tag> : '-';
-        const items: MenuProps['items'] = RATING_LEVELS.map((r) => ({
-          key: r,
-          label: r,
-          onClick: () => handleSetRating(record, r),
-        }));
-        return (
-          <Dropdown menu={{ items }} trigger={['click']}>
-            <Button type="link" size="small">
-              {v ? <Tag color={v === '优秀' ? 'gold' : v === '不合格' ? 'red' : 'blue'}>{v}</Tag> : '设置'}
-            </Button>
-          </Dropdown>
-        );
-      },
-    },
-    {
-      title: '混合',
-      dataIndex: 'is_mixed_role',
-      width: 55,
-      align: 'center',
-      render: (v: boolean) => v ? <Tag color="purple">是</Tag> : null,
-    },
-    {
       title: '操作',
-      width: 70,
+      width: 80,
       fixed: 'right',
       render: (_: unknown, record: FinalResult) => (
         <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openComment(record)}>
@@ -357,6 +367,24 @@ export default function ResultPage() {
             options={ALL_DEPARTMENTS.map((d) => ({ label: d, value: d }))}
           />
           <Select
+            placeholder="组/中心"
+            allowClear
+            showSearch
+            style={{ width: 160 }}
+            value={filter.group_name}
+            onChange={(v) => setFilter((f) => ({ ...f, group_name: v }))}
+            options={groupOptions}
+          />
+          <Select
+            placeholder="岗位"
+            allowClear
+            showSearch
+            style={{ width: 160 }}
+            value={filter.position}
+            onChange={(v) => setFilter((f) => ({ ...f, position: v }))}
+            options={positionOptions}
+          />
+          <Select
             placeholder="考核类型"
             allowClear
             style={{ width: 150 }}
@@ -374,7 +402,7 @@ export default function ResultPage() {
           columns={columns}
           dataSource={results}
           loading={loading}
-          scroll={{ x: 1500 }}
+          scroll={{ x: 1700 }}
           size="middle"
           pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
         />
@@ -389,7 +417,7 @@ export default function ResultPage() {
         confirmLoading={commentLoading}
         destroyOnClose
       >
-        <Form form={commentForm} layout="vertical">
+        <Form form={commentForm} layout="vertical" preserve={false} initialValues={commentInitialValues}>
           <Form.Item label="评语" name="leader_comment">
             <Input.TextArea rows={5} maxLength={1000} showCount placeholder="输入领导评语..." />
           </Form.Item>

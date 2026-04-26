@@ -7,7 +7,6 @@
 - 产品研发人员（满分110）：工作积分(0~50) + 经济指标(0~20) + 综合评价(0~30) + 加减分(±10)
 
 排名规则：同部门、同考核类型内按总分降序，同分时按工作积分降序、经济指标降序
-混合角色：最终总分 = 身份A总分 × 50% + 身份B总分 × 50%
 """
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
@@ -23,6 +22,7 @@ from app.models.employee import Employee
 from app.services.economic_service import calculate_economic_indicators, get_employee_economic_score
 from app.config import (
     ASSESS_TYPE_MANAGER, ASSESS_TYPE_PUBLIC, ASSESS_TYPE_BUSINESS, ASSESS_TYPE_RD,
+    ROLE_ADMIN, ROLE_LEADER,
 )
 
 D = Decimal
@@ -32,7 +32,7 @@ ZERO = D("0")
 async def calculate_final_results(db: AsyncSession, cycle_id: int) -> list[FinalResult]:
     """
     计算所有员工的最终考核成绩。
-    流程：清旧数据 → 收集各维度得分 → 计算总分 → 混合角色合并 → 排名
+    流程：清旧数据 → 收集各维度得分 → 计算总分 → 排名
     """
     # 1. 清除旧数据
     await db.execute(delete(FinalResult).where(FinalResult.cycle_id == cycle_id))
@@ -57,7 +57,11 @@ async def calculate_final_results(db: AsyncSession, cycle_id: int) -> list[Final
     # 3. 为每个员工计算最终成绩
     results: list[FinalResult] = []
     for emp in employees.values():
-        if emp.role == "领导":
+        # 领导不参与考核；管理员账号及任何没有考核类型的员工也跳过
+        # （final_results.assess_type NOT NULL，且业务侧不对他们做成绩排名）
+        if emp.role in (ROLE_LEADER, ROLE_ADMIN):
+            continue
+        if not emp.assess_type:
             continue
 
         result = _build_final_result(
@@ -66,30 +70,6 @@ async def calculate_final_results(db: AsyncSession, cycle_id: int) -> list[Final
             bonus_sums, key_task_scores, economic_scores,
             emp.assess_type,
         )
-
-        # 混合角色处理
-        if emp.assess_type_secondary:
-            result.is_mixed_role = True
-            result.secondary_assess_type = emp.assess_type_secondary
-
-            # 计算第二身份得分
-            secondary_scores = _calc_dimension_scores(
-                emp, cycle_id,
-                score_summaries, eval_summaries, work_goal_scores,
-                bonus_sums, key_task_scores, economic_scores,
-                emp.assess_type_secondary,
-            )
-            result.secondary_work_score = secondary_scores["work_score"]
-            result.secondary_economic_score = secondary_scores["economic_score"]
-            result.secondary_key_task_score = secondary_scores["key_task_score"]
-            result.secondary_eval_score = secondary_scores["eval_score"]
-            result.secondary_bonus_score = secondary_scores["bonus_score"]
-            result.secondary_total_score = secondary_scores["total_score"]
-
-            # 混合角色最终总分 = 身份A × 50% + 身份B × 50%
-            result.total_score = (
-                (result.total_score + result.secondary_total_score) * D("0.5")
-            ).quantize(D("0.01"), rounding=ROUND_HALF_UP)
 
         db.add(result)
         results.append(result)
@@ -134,9 +114,9 @@ def _build_final_result(
         employee_name=emp.name,
         department=emp.department or "",
         group_name=emp.group_name or "",
+        position=emp.position or "",
         grade=emp.grade or "",
         assess_type=assess_type,
-        is_mixed_role=False,
         work_score=scores["work_score"],
         work_score_max=work_max,
         economic_score=scores["economic_score"],
@@ -177,17 +157,15 @@ def _calc_dimension_scores(
         else:
             economic_score = min(econ, D("20"))
 
-    # 重点任务得分（仅基层管理人员）
+    # 重点任务得分（仅基层管理人员）= 该员工所有申请分值之和
+    # 业务层已保证单员工合计 ≤ 10；此处对异常数据再兜底截到 10
     if assess_type == ASSESS_TYPE_MANAGER:
-        kt = key_task_scores.get(emp.id)
-        if kt:
-            key_task_score = D(str(kt.score or 0))
+        kt_total = key_task_scores.get(emp.id, ZERO)
+        key_task_score = min(kt_total, D("10"))
 
-    # 工作目标完成度得分（仅公共人员，满分70）
+    # 工作目标完成度得分（仅公共人员，满分70；多位领导评分时取均值）
     if assess_type == ASSESS_TYPE_PUBLIC:
-        wg = work_goal_scores.get(emp.id)
-        if wg:
-            work_goal_score = D(str(wg.score or 0))
+        work_goal_score = work_goal_scores.get(emp.id, ZERO)
 
     # 综合评价得分（来自 eval_summaries.final_score，满分30）
     es = eval_summaries.get(emp.id)
@@ -221,7 +199,6 @@ async def _calculate_rankings(results: list[FinalResult]):
     """
     排名规则：同部门、同考核类型内按总分降序。
     同分时按工作积分降序、经济指标降序。
-    混合角色按主要身份(assess_type)归入对应排名。
     """
     # 按部门+考核类型分组
     groups: dict[str, list[FinalResult]] = {}
@@ -248,6 +225,8 @@ async def get_final_results(
     department: Optional[str] = None,
     assess_type: Optional[str] = None,
     employee_name: Optional[str] = None,
+    group_name: Optional[str] = None,
+    position: Optional[str] = None,
 ) -> list:
     """查询最终考核成绩"""
     query = select(FinalResult).where(FinalResult.cycle_id == cycle_id)
@@ -257,6 +236,10 @@ async def get_final_results(
         query = query.where(FinalResult.assess_type == assess_type)
     if employee_name:
         query = query.where(FinalResult.employee_name.contains(employee_name))
+    if group_name:
+        query = query.where(FinalResult.group_name == group_name)
+    if position:
+        query = query.where(FinalResult.position == position)
     query = query.order_by(
         FinalResult.department,
         FinalResult.assess_type,
@@ -313,11 +296,18 @@ async def _load_eval_summaries(db: AsyncSession, cycle_id: int) -> dict[int, Eva
     return {s.employee_id: s for s in result.scalars().all()}
 
 
-async def _load_work_goal_scores(db: AsyncSession, cycle_id: int) -> dict[int, WorkGoalScore]:
+async def _load_work_goal_scores(db: AsyncSession, cycle_id: int) -> dict[int, D]:
+    """按员工聚合工作目标完成度得分。多位领导评分时取均值。"""
     result = await db.execute(
         select(WorkGoalScore).where(WorkGoalScore.cycle_id == cycle_id)
     )
-    return {s.employee_id: s for s in result.scalars().all()}
+    grouped: dict[int, list[D]] = {}
+    for s in result.scalars().all():
+        grouped.setdefault(s.employee_id, []).append(D(str(s.score or 0)))
+    return {
+        eid: (sum(scores) / D(len(scores))) if scores else ZERO
+        for eid, scores in grouped.items()
+    }
 
 
 async def _load_bonus_sums(db: AsyncSession, cycle_id: int) -> dict[int, D]:
@@ -333,8 +323,14 @@ async def _load_bonus_sums(db: AsyncSession, cycle_id: int) -> dict[int, D]:
     }
 
 
-async def _load_key_task_scores(db: AsyncSession, cycle_id: int) -> dict[int, KeyTaskScore]:
+async def _load_key_task_scores(db: AsyncSession, cycle_id: int) -> dict[int, D]:
+    """按员工聚合 key_task_scores（新版为多条申请制，需要 sum）。"""
     result = await db.execute(
-        select(KeyTaskScore).where(KeyTaskScore.cycle_id == cycle_id)
+        select(
+            KeyTaskScore.employee_id,
+            func.coalesce(func.sum(KeyTaskScore.score), 0).label("total"),
+        )
+        .where(KeyTaskScore.cycle_id == cycle_id)
+        .group_by(KeyTaskScore.employee_id)
     )
-    return {k.employee_id: k for k in result.scalars().all()}
+    return {row.employee_id: D(str(row.total)) for row in result.all()}

@@ -48,14 +48,14 @@ import type {
 import {
   ALL_ASSESS_TYPES,
   ALL_DEPARTMENTS,
-  ALL_ROLES,
+  EMPLOYEE_ROLES,
   DEFAULT_PAGE_SIZE,
   PAGE_SIZE_OPTIONS,
+  ROLE,
 } from '@/utils/constants';
 import { downloadBlob, extractFilename } from '@/utils/format';
 
-interface FormValues extends Omit<EmployeeCreate, 'assess_type_secondary'> {
-  assess_type_secondary?: string | null;
+interface FormValues extends EmployeeCreate {
   is_active?: boolean;
 }
 
@@ -108,39 +108,45 @@ export default function EmployeePage() {
   }, [fetchList]);
 
   // ---- 表单：新增 / 编辑 ----
+  // 预填策略：Modal 使用 destroyOnClose，Form 每次打开时重新挂载并读取 initialValues。
+  // openCreate/openEdit 只负责切状态，不再手动调 form.setFieldsValue / resetFields。
   const openCreate = () => {
     setEditing(null);
-    form.resetFields();
     setFormOpen(true);
   };
 
   const openEdit = (row: Employee) => {
     setEditing(row);
-    form.setFieldsValue({
-      name: row.name,
-      department: row.department,
-      group_name: row.group_name ?? '',
-      position: row.position ?? '',
-      grade: row.grade ?? '',
-      phone: row.phone,
-      role: row.role,
-      assess_type: row.assess_type,
-      assess_type_secondary: row.assess_type_secondary ?? undefined,
-      is_active: row.is_active,
-    });
     setFormOpen(true);
   };
+
+  const initialFormValues = useMemo<Partial<FormValues> | undefined>(() => {
+    if (!editing) return undefined;
+    return {
+      name: editing.name,
+      department: editing.department,
+      group_name: editing.group_name ?? '',
+      position: editing.position ?? '',
+      grade: editing.grade ?? '',
+      phone: editing.phone,
+      role: editing.role,
+      assess_type: editing.assess_type,
+      is_active: editing.is_active,
+    };
+  }, [editing]);
 
   const onSubmitForm = async () => {
     try {
       const values = await form.validateFields();
       setSubmitting(true);
+      const isLeader = values.role === ROLE.LEADER;
       const payload: FormValues = {
         ...values,
         group_name: values.group_name?.trim() || null,
         position: values.position?.trim() || null,
         grade: values.grade?.trim() || null,
-        assess_type_secondary: values.assess_type_secondary || null,
+        // 领导不参与考核：考核类型允许为空
+        assess_type: isLeader ? (values.assess_type || null) : values.assess_type,
       };
       if (editing) {
         await employeeApi.update(editing.id, payload);
@@ -263,7 +269,23 @@ export default function EmployeePage() {
   // ---- 表格列 ----
   const columns: ColumnsType<Employee> = useMemo(
     () => [
-      { title: '姓名', dataIndex: 'name', width: 100, fixed: 'left' },
+      {
+        title: '姓名',
+        dataIndex: 'name',
+        width: 140,
+        fixed: 'left',
+        render: (v: string, row: Employee) =>
+          row.is_duplicate_name ? (
+            <Tooltip title="当前周期内存在同名员工，请修改姓名或岗级以区分，避免项目经理关联失败">
+              <Space direction="vertical" size={0}>
+                <span style={{ color: '#ff4d4f', fontWeight: 500 }}>{v}</span>
+                <span style={{ fontSize: 11, color: '#ff4d4f' }}>同名冲突</span>
+              </Space>
+            </Tooltip>
+          ) : (
+            v
+          ),
+      },
       { title: '手机号', dataIndex: 'phone', width: 130 },
       { title: '部门', dataIndex: 'department', width: 130 },
       {
@@ -289,14 +311,8 @@ export default function EmployeePage() {
         title: '考核类型',
         dataIndex: 'assess_type',
         width: 130,
-        render: (v: string, row) => (
-          <Space size={4}>
-            <Tag color="purple">{v}</Tag>
-            {row.assess_type_secondary && (
-              <Tag color="magenta">{row.assess_type_secondary}</Tag>
-            )}
-          </Space>
-        ),
+        render: (v: string | null) =>
+          v ? <Tag color="purple">{v}</Tag> : <span style={{ color: '#999' }}>-</span>,
       },
       {
         title: '状态',
@@ -420,7 +436,7 @@ export default function EmployeePage() {
             allowClear
             style={{ width: 140 }}
             value={filter.role}
-            options={ALL_ROLES.map((r) => ({ label: r, value: r }))}
+            options={EMPLOYEE_ROLES.map((r) => ({ label: r, value: r }))}
             onChange={(v) => {
               setFilter((f) => ({ ...f, role: v }));
               setPage(1);
@@ -494,6 +510,7 @@ export default function EmployeePage() {
           layout="vertical"
           autoComplete="off"
           preserve={false}
+          initialValues={initialFormValues}
         >
           <Space.Compact block>
             <Form.Item
@@ -521,13 +538,10 @@ export default function EmployeePage() {
             <Form.Item
               label="部门"
               name="department"
-              rules={[{ required: true, message: '请选择部门' }]}
+              rules={[{ required: true, message: '请输入部门' }]}
               style={{ flex: 1, marginRight: 8 }}
             >
-              <Select
-                placeholder="部门"
-                options={ALL_DEPARTMENTS.map((d) => ({ label: d, value: d }))}
-              />
+              <Input placeholder="部门" maxLength={50} />
             </Form.Item>
             <Form.Item
               label="组/中心"
@@ -560,32 +574,36 @@ export default function EmployeePage() {
             >
               <Select
                 placeholder="角色"
-                options={ALL_ROLES.map((r) => ({ label: r, value: r }))}
+                options={EMPLOYEE_ROLES.map((r) => ({ label: r, value: r }))}
               />
             </Form.Item>
             <Form.Item
-              label="考核类型"
-              name="assess_type"
-              rules={[{ required: true, message: '请选择考核类型' }]}
-              style={{ flex: 1 }}
+              noStyle
+              shouldUpdate={(prev, curr) => prev.role !== curr.role}
             >
-              <Select
-                placeholder="考核类型"
-                options={ALL_ASSESS_TYPES.map((a) => ({ label: a, value: a }))}
-              />
+              {({ getFieldValue }) => {
+                const isLeader = getFieldValue('role') === ROLE.LEADER;
+                return (
+                  <Form.Item
+                    label={isLeader ? '考核类型（领导可留空）' : '考核类型'}
+                    name="assess_type"
+                    rules={
+                      isLeader
+                        ? []
+                        : [{ required: true, message: '请选择考核类型' }]
+                    }
+                    style={{ flex: 1 }}
+                  >
+                    <Select
+                      placeholder={isLeader ? '领导不参与考核，可留空' : '考核类型'}
+                      allowClear={isLeader}
+                      options={ALL_ASSESS_TYPES.map((a) => ({ label: a, value: a }))}
+                    />
+                  </Form.Item>
+                );
+              }}
             </Form.Item>
           </Space.Compact>
-
-          <Form.Item
-            label="第二考核类型（混合角色，可选）"
-            name="assess_type_secondary"
-          >
-            <Select
-              placeholder="如同时具备两种身份请填写"
-              allowClear
-              options={ALL_ASSESS_TYPES.map((a) => ({ label: a, value: a }))}
-            />
-          </Form.Item>
 
           {editing && (
             <Form.Item label="账号状态" name="is_active" valuePropName="checked">

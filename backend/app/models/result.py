@@ -14,9 +14,9 @@ class FinalResult(Base):
     employee_name = Column(String(50), nullable=False, comment="员工姓名")
     department = Column(String(50), nullable=False, comment="部门")
     group_name = Column(String(50), nullable=True, comment="组/中心")
+    position = Column(String(50), nullable=True, comment="岗位")
     grade = Column(String(20), nullable=True, comment="岗级")
     assess_type = Column(String(20), nullable=False, comment="考核类型")
-    is_mixed_role = Column(Boolean, default=False, comment="是否混合角色")
 
     # 各维度得分
     work_score = Column(Numeric(8, 2), default=0, comment="工作积分得分")
@@ -33,15 +33,6 @@ class FinalResult(Base):
     ranking = Column(Integer, default=0, comment="排名（同部门同类型内）")
     rating = Column(String(20), nullable=True, comment="评定等级")
     leader_comment = Column(String(1000), nullable=True, comment="领导评语")
-
-    # 混合角色的第二身份得分
-    secondary_assess_type = Column(String(20), nullable=True, comment="第二考核类型")
-    secondary_work_score = Column(Numeric(8, 2), default=0, comment="第二身份工作积分得分")
-    secondary_economic_score = Column(Numeric(8, 2), default=0, comment="第二身份经济指标得分")
-    secondary_key_task_score = Column(Numeric(5, 2), default=0, comment="第二身份重点任务得分")
-    secondary_eval_score = Column(Numeric(8, 2), default=0, comment="第二身份综合评价得分")
-    secondary_bonus_score = Column(Numeric(5, 2), default=0, comment="第二身份加减分")
-    secondary_total_score = Column(Numeric(8, 2), default=0, comment="第二身份总分")
 
     # 跨周期标记
     no_excellent_flag = Column(Boolean, default=False, comment="不可评优标记（同年2次基本合格）")

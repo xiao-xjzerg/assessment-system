@@ -101,32 +101,21 @@ export default function SummaryPage() {
     { title: '岗位', dataIndex: 'position', width: 100, render: (v: string | null) => v || '-' },
     { title: '考核类型', dataIndex: 'assess_type', width: 120 },
     {
-      title: '同事1',
-      dataIndex: 'colleague1_score',
-      width: 70,
+      title: '同事/部门员工',
+      dataIndex: 'colleague_avg_score',
+      width: 140,
       align: 'right',
-      render: (v: number | string) => v ? formatNumber(Number(v)) : '-',
-    },
-    {
-      title: '同事2',
-      dataIndex: 'colleague2_score',
-      width: 70,
-      align: 'right',
-      render: (v: number | string) => v ? formatNumber(Number(v)) : '-',
-    },
-    {
-      title: '同事3',
-      dataIndex: 'colleague3_score',
-      width: 70,
-      align: 'right',
-      render: (v: number | string) => v ? formatNumber(Number(v)) : '-',
-    },
-    {
-      title: '同事4',
-      dataIndex: 'colleague4_score',
-      width: 70,
-      align: 'right',
-      render: (v: number | string) => v ? formatNumber(Number(v)) : '-',
+      render: (v: number | string, row: EvalSummary) => {
+        const score = Number(v || 0);
+        const cnt = row.colleague_count || 0;
+        if (!cnt) return '-';
+        return (
+          <span>
+            {formatNumber(score)}
+            <span style={{ color: '#999', marginLeft: 6 }}>（{cnt}人）</span>
+          </span>
+        );
+      },
     },
     {
       title: '上级领导',
@@ -141,6 +130,13 @@ export default function SummaryPage() {
       width: 85,
       align: 'right',
       render: (v: number | string) => v ? formatNumber(Number(v)) : '-',
+    },
+    {
+      title: '基层管理互评',
+      dataIndex: 'manager_mutual_score',
+      width: 110,
+      align: 'right',
+      render: (v: number | string) => v && Number(v) > 0 ? formatNumber(Number(v)) : '-',
     },
     {
       title: '加权总分',

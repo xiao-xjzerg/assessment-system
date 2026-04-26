@@ -29,8 +29,10 @@ export interface LoginResponse {
   user_id: number;
   name: string;
   role: string;
-  assess_type: string;
+  assess_type: string | null;
   department: string;
+  /** 是否在当前周期担任项目经理（派生角色，基于项目一览表 pm_id） */
+  is_pm: boolean;
 }
 
 export interface ChangePasswordRequest {
@@ -67,12 +69,13 @@ export interface Employee {
   grade: string | null;
   phone: string;
   role: string;
-  assess_type: string;
-  assess_type_secondary: string | null;
+  assess_type: string | null;
   is_active: boolean;
   status: string | null;
   rating: string | null;
   leader_comment: string | null;
+  /** 同周期内是否存在同名员工（后端派生） */
+  is_duplicate_name?: boolean;
 }
 
 export interface EmployeeCreate {
@@ -83,8 +86,7 @@ export interface EmployeeCreate {
   grade?: string | null;
   phone: string;
   role: string;
-  assess_type: string;
-  assess_type_secondary?: string | null;
+  assess_type?: string | null;
 }
 
 export type EmployeeUpdate = Partial<EmployeeCreate> & {
@@ -106,6 +108,7 @@ export interface EmployeeListQuery {
 export interface ImportResult {
   success_count: number;
   errors: string[];
+  warnings?: string[];
   [key: string]: unknown;
 }
 
@@ -126,6 +129,8 @@ export interface Project {
   project_profit: number | string;
   self_dev_income: number | string;
   product_contract_amount: number | string;
+  current_period_profit: number | string;
+  current_period_self_dev_income: number | string;
   presale_progress: number | string;
   delivery_progress: number | string;
   used_presale_progress: number | string;
@@ -136,6 +141,8 @@ export interface Project {
   project_type_coeff: number | string;
   workload_coeff: number | string;
   signing_probability: number | string;
+  /** 项目经理姓名存在但未能唯一匹配到员工（缺失或同名冲突） */
+  pm_missing?: boolean;
 }
 
 export interface ProjectCreate {
@@ -151,6 +158,8 @@ export interface ProjectCreate {
   project_profit?: number | string;
   self_dev_income?: number | string;
   product_contract_amount?: number | string;
+  current_period_profit?: number | string;
+  current_period_self_dev_income?: number | string;
   presale_progress?: number | string;
   delivery_progress?: number | string;
   pm_name?: string | null;
@@ -338,6 +347,10 @@ export interface ScoreSummary {
   transform_score_total: number | string;
   total_score: number | string;
   normalized_score: number | string;
+  /** 归一化满分：基层管理人员=30，业务/研发=50，公共人员=null */
+  normalize_full_mark: number | string | null;
+  /** 归一化基准最大积分：基层管理=全类型最高，业务/研发=同部门同类型最高，公共人员=null */
+  normalize_base_max: number | string | null;
 }
 
 // ==================== 360 评价 ====================
@@ -394,12 +407,11 @@ export interface EvalSummary {
   department: string;
   position: string | null;
   assess_type: string;
-  colleague1_score: number | string;
-  colleague2_score: number | string;
-  colleague3_score: number | string;
-  colleague4_score: number | string;
+  colleague_avg_score: number | string;
+  colleague_count: number;
   superior_score: number | string;
   dept_leader_score: number | string;
+  manager_mutual_score: number | string;
   weighted_total: number | string;
   final_score: number | string;
 }
@@ -415,6 +427,7 @@ export interface WorkGoalScore {
   cycle_id: number;
   employee_id: number;
   leader_id: number;
+  leader_name?: string | null;
   score: number | string;
   comment: string | null;
 }
@@ -453,6 +466,18 @@ export interface EconomicDetail {
   score: number;
 }
 
+export interface EconomicBreakdownItem {
+  project_name: string;
+  indicator_type: string;
+  raw_value: number;
+  participation_coeff: number;
+  completed_value: number;
+  target_value: number;
+  indicator_coeff: number;
+  full_mark: number;
+  score: number;
+}
+
 export interface EconomicSummary {
   employee_id: number;
   employee_name: string;
@@ -461,6 +486,8 @@ export interface EconomicSummary {
   grade: string | null;
   assess_type: string;
   total_score: number;
+  /** 参与总分计算的各条明细（用于 Tooltip 展示公式） */
+  breakdown?: EconomicBreakdownItem[];
 }
 
 // ==================== 加减分 & 重点任务 ====================
@@ -486,11 +513,21 @@ export interface KeyTaskScore {
   cycle_id: number;
   employee_id: number;
   employee_name: string;
+  task_name: string;
+  completion: string;
+  score: number | string;
+}
+
+export interface KeyTaskScoreCreate {
+  employee_id: number;
+  task_name: string;
+  completion: string;
   score: number | string;
 }
 
 export interface KeyTaskScoreUpdate {
-  employee_id: number;
+  task_name: string;
+  completion: string;
   score: number | string;
 }
 
@@ -502,9 +539,9 @@ export interface FinalResult {
   employee_name: string;
   department: string;
   group_name: string | null;
+  position: string | null;
   grade: string | null;
   assess_type: string;
-  is_mixed_role: boolean;
   work_score: number | string;
   work_score_max: number | string;
   economic_score: number | string;
@@ -517,12 +554,5 @@ export interface FinalResult {
   ranking: number;
   rating: string | null;
   leader_comment: string | null;
-  secondary_assess_type: string | null;
-  secondary_work_score: number | string;
-  secondary_economic_score: number | string;
-  secondary_key_task_score: number | string;
-  secondary_eval_score: number | string;
-  secondary_bonus_score: number | string;
-  secondary_total_score: number | string;
   no_excellent_flag: boolean;
 }

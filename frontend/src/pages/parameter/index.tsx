@@ -41,7 +41,7 @@ import type {
   Project,
   SigningProbabilityItem,
 } from '@/types';
-import { ALL_DEPARTMENTS, PROJECT_TYPES } from '@/utils/constants';
+import { ALL_DEPARTMENTS } from '@/utils/constants';
 import { formatCoeff, formatPercent } from '@/utils/format';
 
 // ==================== Tab 1: 部门人均目标值 ====================
@@ -94,6 +94,17 @@ function DeptTargetsTab() {
       ...prev,
       [key]: { ...prev[key], [field]: value ?? 0 },
     }));
+  };
+
+  // 本地暂存删除：把该行从 data 和 editMap 中移除，下次"保存"全量覆盖时即生效
+  const stageRemoveExisting = (row: DeptTarget) => {
+    const key = `${row.department}|${row.group_name || ''}`;
+    setData((prev) => prev.filter((r) => r.id !== row.id));
+    setEditMap((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   };
 
   const addRow = () => {
@@ -196,6 +207,34 @@ function DeptTargetsTab() {
         );
       },
     },
+    {
+      title: '操作',
+      width: 90,
+      render: (_v, row) => (
+        <Popconfirm
+          title="确认删除该目标值？"
+          description={
+            <div style={{ maxWidth: 280 }}>
+              风险提示：
+              <br />
+              1. 删除后，原本匹配到本行的员工在经济指标计算中，会回退到"部门整体"兜底；若无兜底则为 0。
+              <br />
+              2. 经济指标总分将被拉低甚至清零，最终成绩/排名随之变化。
+              <br />
+              3. 删除需点击上方"保存"按钮才真正生效；未保存前刷新页面可恢复。
+            </div>
+          }
+          okText="确认删除"
+          okButtonProps={{ danger: true }}
+          cancelText="取消"
+          onConfirm={() => stageRemoveExisting(row)}
+        >
+          <Button type="link" danger size="small" icon={<DeleteOutlined />}>
+            删除
+          </Button>
+        </Popconfirm>
+      ),
+    },
   ];
 
   return (
@@ -220,7 +259,7 @@ function DeptTargetsTab() {
         columns={existingColumns}
         pagination={false}
         size="middle"
-        scroll={{ x: 720 }}
+        scroll={{ x: 820 }}
       />
       {newRows.length > 0 && (
         <div style={{ marginTop: 16 }}>
@@ -422,23 +461,32 @@ function SpecialTargetsTab() {
 
 // ==================== Tab 3: 项目类型系数 ====================
 
+interface EditableRow {
+  key: string;
+  id?: number;
+  project_type: string;
+  coefficient: number;
+  isNew?: boolean;
+}
+
 function ProjectTypeCoeffsTab() {
   const { message } = AntdApp.useApp();
-  const [data, setData] = useState<ProjectTypeCoeff[]>([]);
+  const [rows, setRows] = useState<EditableRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [editMap, setEditMap] = useState<Record<string, number>>({});
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const list = await parameterApi.listProjectTypeCoeffs();
-      setData(list);
-      const map: Record<string, number> = {};
-      for (const item of list) {
-        map[item.project_type] = Number(item.coefficient);
-      }
-      setEditMap(map);
+      setRows(
+        list.map((item) => ({
+          key: `exist-${item.id}`,
+          id: item.id,
+          project_type: item.project_type,
+          coefficient: Number(item.coefficient),
+        })),
+      );
     } catch {
       // 拦截器已处理
     } finally {
@@ -450,10 +498,42 @@ function ProjectTypeCoeffsTab() {
     fetchData();
   }, [fetchData]);
 
+  const updateRow = (key: string, field: 'project_type' | 'coefficient', value: unknown) => {
+    setRows((prev) =>
+      prev.map((r) => (r.key === key ? { ...r, [field]: value as never } : r)),
+    );
+  };
+
+  const addRow = () => {
+    setRows((prev) => [
+      ...prev,
+      {
+        key: `new-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        project_type: '',
+        coefficient: 1,
+        isNew: true,
+      },
+    ]);
+  };
+
+  const removeRow = (key: string) => {
+    setRows((prev) => prev.filter((r) => r.key !== key));
+  };
+
   const onSave = async () => {
-    const items: ProjectTypeCoeffItem[] = data.map((item) => ({
-      project_type: item.project_type,
-      coefficient: editMap[item.project_type] ?? Number(item.coefficient),
+    const names = rows.map((r) => r.project_type.trim());
+    if (names.some((n) => !n)) {
+      message.warning('项目类型名称不能为空');
+      return;
+    }
+    const dup = names.find((n, i) => names.indexOf(n) !== i);
+    if (dup) {
+      message.warning(`项目类型名称重复：${dup}`);
+      return;
+    }
+    const items: ProjectTypeCoeffItem[] = rows.map((r) => ({
+      project_type: r.project_type.trim(),
+      coefficient: Number(r.coefficient) || 0,
     }));
     setSaving(true);
     try {
@@ -480,25 +560,32 @@ function ProjectTypeCoeffsTab() {
     }
   };
 
-  const columns: ColumnsType<ProjectTypeCoeff> = [
-    { title: '项目类型', dataIndex: 'project_type', width: 150 },
+  const columns: ColumnsType<EditableRow> = [
+    {
+      title: '项目类型',
+      dataIndex: 'project_type',
+      width: 200,
+      render: (_v, row) => (
+        <Input
+          value={row.project_type}
+          placeholder="如：运营/运维"
+          style={{ width: 180 }}
+          onChange={(e) => updateRow(row.key, 'project_type', e.target.value)}
+        />
+      ),
+    },
     {
       title: '系数',
       dataIndex: 'coefficient',
       width: 200,
       render: (_v, row) => (
         <InputNumber
-          value={editMap[row.project_type]}
+          value={row.coefficient}
           min={0}
           max={10}
           step={0.1}
           style={{ width: 150 }}
-          onChange={(val) =>
-            setEditMap((prev) => ({
-              ...prev,
-              [row.project_type]: val ?? 0,
-            }))
-          }
+          onChange={(val) => updateRow(row.key, 'coefficient', val ?? 0)}
         />
       ),
     },
@@ -506,13 +593,42 @@ function ProjectTypeCoeffsTab() {
       title: '当前值',
       key: 'display',
       width: 120,
-      render: (_v, row) => formatCoeff(editMap[row.project_type]),
+      render: (_v, row) => formatCoeff(row.coefficient),
+    },
+    {
+      title: '操作',
+      width: 90,
+      render: (_v, row) => (
+        <Popconfirm
+          title="确认删除该项目类型？"
+          description={
+            <div style={{ maxWidth: 280 }}>
+              风险提示：
+              <br />
+              1. 删除后，已有该项目类型的项目，工作量系数计算时会按默认 1.0 处理，并在导入时列入警告。
+              <br />
+              2. 删除需点击上方"保存"按钮才真正生效；未保存前刷新页面可恢复。
+            </div>
+          }
+          okText="确认删除"
+          okButtonProps={{ danger: true }}
+          cancelText="取消"
+          onConfirm={() => removeRow(row.key)}
+        >
+          <Button type="link" danger size="small" icon={<DeleteOutlined />}>
+            删除
+          </Button>
+        </Popconfirm>
+      ),
     },
   ];
 
   return (
     <div>
       <Space style={{ marginBottom: 16 }}>
+        <Button icon={<PlusOutlined />} onClick={addRow}>
+          新增行
+        </Button>
         <Button
           type="primary"
           icon={<SaveOutlined />}
@@ -523,7 +639,7 @@ function ProjectTypeCoeffsTab() {
         </Button>
         <Popconfirm
           title="确认重置为默认值？"
-          description="将恢复系统预设的项目类型系数。"
+          description="将恢复系统预设的 4 项（运营/运维 0.7、集成 1.0、基金课题/咨询 1.5、自研/AI 2.0），当前自定义的项目类型将被清除。"
           okText="重置"
           cancelText="取消"
           onConfirm={onReset}
@@ -531,14 +647,14 @@ function ProjectTypeCoeffsTab() {
           <Button icon={<UndoOutlined />}>重置默认</Button>
         </Popconfirm>
       </Space>
-      <Table<ProjectTypeCoeff>
-        rowKey="id"
+      <Table<EditableRow>
+        rowKey="key"
         loading={loading}
-        dataSource={data}
+        dataSource={rows}
         columns={columns}
         pagination={false}
         size="middle"
-        scroll={{ x: 470 }}
+        scroll={{ x: 620 }}
       />
     </div>
   );

@@ -19,7 +19,11 @@ import {
   Button,
   Spin,
   Alert,
+  Modal,
+  Table,
+  Empty,
 } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import {
   TeamOutlined,
   ProjectOutlined,
@@ -29,6 +33,7 @@ import {
   TrophyOutlined,
   ArrowRightOutlined,
   SettingOutlined,
+  AuditOutlined,
 } from '@ant-design/icons';
 import { NeuCard } from '@/components/neu';
 import { useUserStore } from '@/stores/userStore';
@@ -36,6 +41,8 @@ import { useCycleStore } from '@/stores/cycleStore';
 import { employeeApi } from '@/services/api/employee';
 import { projectApi } from '@/services/api/project';
 import { evaluationApi } from '@/services/api/evaluation';
+import { participationApi } from '@/services/api/participation';
+import type { ParticipationSummary } from '@/types';
 import { ROLE } from '@/utils/constants';
 
 const { Title, Text, Paragraph } = Typography;
@@ -64,6 +71,13 @@ export default function DashboardPage() {
     pending: number;
     progress: number;
   } | null>(null);
+  const [partProgress, setPartProgress] = useState<{
+    total: number;
+    submitted: number;
+    progress: number;
+    unfilled: ParticipationSummary[];
+  } | null>(null);
+  const [unfilledOpen, setUnfilledOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -93,6 +107,21 @@ export default function DashboardPage() {
           .then((p) => setEvalProgress(p))
           .catch(() => setEvalProgress(null)),
       );
+      tasks.push(
+        participationApi
+          .summary()
+          .then((list) => {
+            const total = list.length;
+            const submitted = list.filter((p) => p.filled).length;
+            setPartProgress({
+              total,
+              submitted,
+              progress: total > 0 ? (submitted / total) * 100 : 0,
+              unfilled: list.filter((p) => !p.filled),
+            });
+          })
+          .catch(() => setPartProgress(null)),
+      );
     }
 
     Promise.allSettled(tasks).finally(() => setLoading(false));
@@ -106,7 +135,7 @@ export default function DashboardPage() {
     );
   }
 
-  // ---- 按角色生成快捷入口 ----
+  // ---- 按角色生成快捷入口（项目经理由 is_pm 派生，可与员工/领导角色叠加） ----
   const quickLinks: QuickLink[] = [];
   if (user.role === ROLE.ADMIN) {
     quickLinks.push(
@@ -117,24 +146,30 @@ export default function DashboardPage() {
       { key: 'score', title: '积分统计', description: '触发计算、明细与汇总', to: '/stats/score', icon: <FormOutlined />, color: '#52c41a' },
       { key: 'result', title: '最终成绩', description: '查看排名、设定评级', to: '/result/final', icon: <TrophyOutlined />, color: '#eb2f96' },
     );
-  } else if (user.role === ROLE.PM) {
-    quickLinks.push(
-      { key: 'part', title: '项目参与度', description: '为我负责的项目填报参与度', to: '/declare/participation', icon: <FormOutlined />, color: '#5b8def' },
-      { key: 'public', title: '公共积分申报', description: '提交公共/转型活动申报', to: '/declare/public-score', icon: <FormOutlined />, color: '#13c2c2' },
-      { key: 'eval', title: '我的评价', description: '完成 360 互评任务', to: '/evaluation/my-tasks', icon: <SolutionOutlined />, color: '#722ed1' },
-    );
-  } else if (user.role === ROLE.LEADER) {
-    quickLinks.push(
-      { key: 'eval', title: '我的评价', description: '完成 360 互评任务', to: '/evaluation/my-tasks', icon: <SolutionOutlined />, color: '#5b8def' },
-      { key: 'wg', title: '工作目标完成度', description: '为公共人员打分', to: '/evaluation/work-goal', icon: <FormOutlined />, color: '#13c2c2' },
-      { key: 'final', title: '最终成绩', description: '查看部门成绩与评语', to: '/result/final', icon: <TrophyOutlined />, color: '#eb2f96' },
-    );
   } else {
-    quickLinks.push(
-      { key: 'public', title: '公共积分申报', description: '提交公共/转型活动申报', to: '/declare/public-score', icon: <FormOutlined />, color: '#5b8def' },
-      { key: 'eval', title: '我的评价', description: '完成 360 互评任务', to: '/evaluation/my-tasks', icon: <SolutionOutlined />, color: '#13c2c2' },
-      { key: 'me', title: '个人中心', description: '查看本期个人成绩详情', to: '/profile/me', icon: <TrophyOutlined />, color: '#722ed1' },
-    );
+    if (user.is_pm) {
+      quickLinks.push({
+        key: 'part',
+        title: '项目参与度',
+        description: '为我负责的项目填报参与度',
+        to: '/declare/participation',
+        icon: <FormOutlined />,
+        color: '#5b8def',
+      });
+    }
+    if (user.role === ROLE.LEADER) {
+      quickLinks.push(
+        { key: 'eval', title: '我的评价', description: '完成 360 互评任务', to: '/evaluation/my-tasks', icon: <SolutionOutlined />, color: '#5b8def' },
+        { key: 'wg', title: '工作目标完成度', description: '为公共人员打分', to: '/evaluation/work-goal', icon: <FormOutlined />, color: '#13c2c2' },
+        { key: 'final', title: '最终成绩', description: '查看部门成绩与评语', to: '/result/final', icon: <TrophyOutlined />, color: '#eb2f96' },
+      );
+    } else {
+      quickLinks.push(
+        { key: 'public', title: '公共积分申报', description: '提交公共/转型活动申报', to: '/declare/public-score', icon: <FormOutlined />, color: '#13c2c2' },
+        { key: 'eval', title: '我的评价', description: '完成 360 互评任务', to: '/evaluation/my-tasks', icon: <SolutionOutlined />, color: '#722ed1' },
+        { key: 'me', title: '个人中心', description: '查看本期个人成绩详情', to: '/profile/me', icon: <TrophyOutlined />, color: '#eb2f96' },
+      );
+    }
   }
 
   return (
@@ -194,7 +229,7 @@ export default function DashboardPage() {
       {/* 管理员统计区 */}
       {user.role === ROLE.ADMIN && (
         <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
-          {[
+          {([
             {
               title: '员工总数',
               value: employeeTotal ?? 0,
@@ -218,7 +253,31 @@ export default function DashboardPage() {
               color: '#722ed1',
               suffix: '%',
               loading: loading && evalProgress === null,
+              precision: 1,
               extra: evalProgress ? `已完成 ${evalProgress.completed} / ${evalProgress.total}` : undefined,
+            },
+            {
+              title: '项目申报完成率',
+              value: partProgress ? partProgress.progress : 0,
+              icon: <AuditOutlined />,
+              color: '#52c41a',
+              suffix: '%',
+              loading: loading && partProgress === null,
+              precision: 1,
+              extra: partProgress ? (
+                <Space size={8} wrap style={{ marginTop: 4 }}>
+                  <Text style={{ fontSize: 12, color: 'var(--neu-text-tertiary)' }}>
+                    已提交 {partProgress.submitted} / {partProgress.total}
+                  </Text>
+                  <Button
+                    size="small"
+                    onClick={() => setUnfilledOpen(true)}
+                    disabled={partProgress.unfilled.length === 0}
+                  >
+                    查看未填项目
+                  </Button>
+                </Space>
+              ) : undefined,
             },
             {
               title: '当前阶段',
@@ -229,21 +288,34 @@ export default function DashboardPage() {
               loading: false,
               extra: activeCycle ? `阶段 ${activeCycle.phase} / 5` : undefined,
             },
-          ].map((item) => (
-            <Col xs={24} sm={12} md={6} key={item.title}>
+          ] as Array<{
+            title: string;
+            value: number | string;
+            icon: React.ReactNode;
+            color: string;
+            suffix: string;
+            loading: boolean;
+            precision?: number;
+            extra?: React.ReactNode;
+          }>).map((item) => (
+            <Col xs={24} sm={12} md={8} lg={6} key={item.title}>
               <NeuCard level={2}>
                 <Spin spinning={!!item.loading}>
                   <Statistic
                     title={<span style={{ color: 'var(--neu-text-secondary)' }}>{item.title}</span>}
                     value={item.value}
-                    precision={item.title === '评价完成率' ? 1 : undefined}
+                    precision={item.precision}
                     prefix={<span style={{ color: item.color }}>{item.icon}</span>}
                     suffix={item.suffix}
                   />
                   {item.extra && (
-                    <Text style={{ fontSize: 12, color: 'var(--neu-text-tertiary)' }}>
-                      {item.extra}
-                    </Text>
+                    typeof item.extra === 'string' ? (
+                      <Text style={{ fontSize: 12, color: 'var(--neu-text-tertiary)' }}>
+                        {item.extra}
+                      </Text>
+                    ) : (
+                      item.extra
+                    )
                   )}
                 </Spin>
               </NeuCard>
@@ -303,6 +375,34 @@ export default function DashboardPage() {
           </Row>
         </div>
       </NeuCard>
+
+      {/* 未填项目列表 Modal */}
+      <Modal
+        title="未完成项目申报的项目"
+        open={unfilledOpen}
+        onCancel={() => setUnfilledOpen(false)}
+        footer={null}
+        width={720}
+      >
+        {partProgress && partProgress.unfilled.length > 0 ? (
+          <Table<ParticipationSummary>
+            rowKey="project_id"
+            size="small"
+            pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 个未完成项目` }}
+            dataSource={partProgress.unfilled}
+            columns={
+              [
+                { title: '项目令号', dataIndex: 'project_code', width: 140 },
+                { title: '项目名称', dataIndex: 'project_name', ellipsis: true },
+                { title: '主承部门', dataIndex: 'department', width: 120 },
+                { title: '项目经理', dataIndex: 'pm_name', width: 100 },
+              ] as ColumnsType<ParticipationSummary>
+            }
+          />
+        ) : (
+          <Empty description="所有项目已完成申报" />
+        )}
+      </Modal>
     </div>
   );
 }

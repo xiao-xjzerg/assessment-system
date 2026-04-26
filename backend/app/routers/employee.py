@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import ROLE_ADMIN, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from app.config import ROLE_ADMIN, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, ADMIN_PHONE
 from app.database import get_db
 from app.dependencies import get_current_user, require_roles
 from app.models.employee import Employee
@@ -87,11 +87,16 @@ async def list_employees(
 ):
     """分页查询员工列表"""
     cycle = await _get_active_cycle(db)
-    items, total = await get_employees(
+    items, total, duplicate_names = await get_employees(
         db, cycle.id, page, page_size, search, department, group_name, role, assess_type
     )
+    out_items = []
+    for e in items:
+        model = EmployeeOut.model_validate(e)
+        model.is_duplicate_name = e.name in duplicate_names
+        out_items.append(model)
     data = PaginatedData[EmployeeOut](
-        items=[EmployeeOut.model_validate(e) for e in items],
+        items=out_items,
         total=total,
         page=page,
         page_size=page_size,
@@ -127,6 +132,9 @@ async def create_employee(
 
     cycle = await _get_active_cycle(db)
 
+    if body.phone == ADMIN_PHONE:
+        raise HTTPException(status_code=400, detail=f"手机号 {ADMIN_PHONE} 为系统保留账号，不可使用")
+
     # 检查手机号重复
     existing = await db.execute(
         select(Employee).where(
@@ -148,7 +156,6 @@ async def create_employee(
         password_hash=pwd_context.hash(password),
         role=body.role,
         assess_type=body.assess_type,
-        assess_type_secondary=body.assess_type_secondary,
     )
     db.add(emp)
     await db.flush()
@@ -171,6 +178,8 @@ async def update_employee(
     emp = result.scalar_one_or_none()
     if emp is None:
         raise HTTPException(status_code=404, detail="员工不存在")
+    if emp.phone == ADMIN_PHONE:
+        raise HTTPException(status_code=403, detail="系统管理员账号受保护，不可修改")
 
     update_data = body.model_dump(exclude_unset=True)
 
@@ -205,6 +214,8 @@ async def delete_employee(
     emp = result.scalar_one_or_none()
     if emp is None:
         raise HTTPException(status_code=404, detail="员工不存在")
+    if emp.phone == ADMIN_PHONE:
+        raise HTTPException(status_code=403, detail="系统管理员账号受保护，不可删除")
     await db.delete(emp)
     await db.flush()
     return ResponseModel(message="删除成功")

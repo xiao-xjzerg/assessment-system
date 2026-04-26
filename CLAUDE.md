@@ -88,7 +88,7 @@ assessment-system/
 │           ├── evaluation_service.py # 360评价：互评匹配、评分、汇总、工作目标完成度
 │           ├── economic_service.py # 经济指标计算（利润/自研收入/产品合同）
 │           ├── bonus_service.py   # 加减分CRUD、重点任务分数管理
-│           └── result_service.py  # 最终成绩计算、排名、混合角色合并
+│           └── result_service.py  # 最终成绩计算、排名
 ├── frontend/                       # 前端项目（待开发）
 │   └── src/
 │       ├── layouts/
@@ -162,7 +162,6 @@ assessment-system/
 | password_hash | String(256) | 密码哈希 |
 | role | String(20) | 角色：管理员/项目经理/普通员工/领导 |
 | assess_type | String(20) | 考核类型：基层管理人员/公共人员/业务人员/产品研发人员 |
-| assess_type_secondary | String(20) | 第二考核类型（混合角色） |
 | is_active | Boolean | 账号是否启用 |
 | rating | String(20) | 评定等级 |
 | leader_comment | String(1000) | 领导评语 |
@@ -185,6 +184,8 @@ assessment-system/
 | project_profit | Numeric(14,2) | 项目利润（万元） |
 | self_dev_income | Numeric(14,2) | 自研收入（万元） |
 | product_contract_amount | Numeric(14,2) | 产品合同金额（万元） |
+| current_period_profit | Numeric(14,2) | 当期确认项目利润（万元） |
+| current_period_self_dev_income | Numeric(14,2) | 当期确认自研收入（万元） |
 | presale_progress | Numeric(6,4) | 售前活动进度系数 |
 | delivery_progress | Numeric(6,4) | 交付活动进度系数 |
 | used_presale_progress | Numeric(6,4) | 已使用进度系数-售前活动 |
@@ -297,12 +298,11 @@ assessment-system/
 | department | String(50) | 部门 |
 | position | String(50) | 岗位 |
 | assess_type | String(20) | 考核类型 |
-| colleague1_score | Numeric(6,2) | 同事1评分 |
-| colleague2_score | Numeric(6,2) | 同事2评分 |
-| colleague3_score | Numeric(6,2) | 同事3评分 |
-| colleague4_score | Numeric(6,2) | 同事4评分 |
-| superior_score | Numeric(6,2) | 上级领导评分 |
-| dept_leader_score | Numeric(6,2) | 部门领导评分 |
+| colleague_avg_score | Numeric(6,2) | 同事/部门员工平均分（业务/产研=同事均值，基层管理/公共=部门员工均值） |
+| colleague_count | Integer | 同事/部门员工评价人数 |
+| superior_score | Numeric(6,2) | 上级领导评分（多人取平均） |
+| dept_leader_score | Numeric(6,2) | 部门领导评分（多人取平均） |
+| manager_mutual_score | Numeric(6,2) | 基层管理互评平均分（仅基层管理人员，其他类型为0） |
 | weighted_total | Numeric(6,2) | 加权汇总得分 |
 | final_score | Numeric(6,2) | 最终得分（折算到30分） |
 
@@ -348,7 +348,6 @@ assessment-system/
 | group_name | String(50) | 组/中心 |
 | grade | String(20) | 岗级 |
 | assess_type | String(20) | 考核类型 |
-| is_mixed_role | Boolean | 是否混合角色 |
 | work_score | Numeric(8,2) | 工作积分得分 |
 | work_score_max | Numeric(5,2) | 工作积分满分（30或50） |
 | economic_score | Numeric(8,2) | 经济指标得分 |
@@ -361,13 +360,6 @@ assessment-system/
 | ranking | Integer | 排名（同部门同类型内） |
 | rating | String(20) | 评定等级 |
 | leader_comment | String(1000) | 领导评语 |
-| secondary_assess_type | String(20) | 第二考核类型 |
-| secondary_work_score | Numeric(8,2) | 第二身份工作积分得分 |
-| secondary_economic_score | Numeric(8,2) | 第二身份经济指标得分 |
-| secondary_key_task_score | Numeric(5,2) | 第二身份重点任务得分 |
-| secondary_eval_score | Numeric(8,2) | 第二身份综合评价得分 |
-| secondary_bonus_score | Numeric(5,2) | 第二身份加减分 |
-| secondary_total_score | Numeric(8,2) | 第二身份总分 |
 | no_excellent_flag | Boolean | 不可评优标记（同年2次基本合格） |
 
 ### dept_targets（部门人均目标值）
@@ -480,8 +472,8 @@ assessment-system/
 2. **经济规模系数**先按利润分段计算，再乘以签约概率（未签约项目）
 3. **实施方式="产品+服务"**标识合同明确约定产品内容，用于产品化收入特殊规则
 4. **参与度系数**：同一项目内，实施交付部合计为1，产品研发部合计为1（某部门无人则为0）
-5. **公共活动积分上限**为该员工项目积分的15%，转型活动不设上限
-6. **混合角色**按两种身份分别计算后取50%权重合并
+5. **公共积分与项目积分独立核算**，不设联动上限（公共活动、转型活动均按申报原值计入）
+6. **每位员工仅有一个考核类型**（基层管理人员/公共人员/业务人员/产品研发人员），不存在「混合角色」
 7. **排名**在同部门、同考核类型内进行
 8. **360评价匿名性**：评分详情API仅管理员和评价人本人可看，被评人不可查看具体评分来源
 9. **评分提交后锁定**：评分提交后不可修改，管理员可通过重置接口允许重新评分
@@ -491,6 +483,40 @@ assessment-system/
    - `score_details` 是**积分明细汇总表**，汇集所有来源的积分（售前/交付/公共/转型），其中 phase="公共"或"转型" 的记录源自 public_scores
    - 计算流程：员工在 public_scores 申报 → 管理员审核 → 系统将审核通过的记录写入 score_details（phase="公共"/"转型"，project_id 为 null）→ 最终在 score_summaries 中汇总
    - 公共活动积分写入 score_details 时：base_score=10，workload_coeff=活动工作量系数，progress_coeff=1，participation_coeff=1
+12. **开方归一化得分**：
+   - 基层管理人员：`30 × √(个人总积分) / √(全类型最高积分)`
+   - 业务人员 / 产品研发人员：`50 × √(个人总积分) / √(同部门同考核类型最高积分)`，按**员工实际所在部门**取 max（业务人员、产品研发人员可能分布在实施交付部或产品研发部，不能写死部门）
+   - 公共人员：不计算归一化得分（以工作目标完成度 70 分替代）
+   - 最终成绩的 `work_score` 直接读取 `score_summaries.normalized_score`，两处数值必须完全一致；若不一致，通常是其中一表未重算
+
+## 前端开发约定
+
+### 编辑 Modal 表单的预填规范
+
+所有「新增 / 编辑」合用一个 Modal + Form 的页面，**必须**遵循以下范式，以保证打开编辑时能正确预填原值：
+
+```tsx
+// 1. openCreate / openEdit 只切状态
+const openCreate = () => { setEditing(null); setFormOpen(true); };
+const openEdit = (row) => { setEditing(row); setFormOpen(true); };
+
+// 2. 用 useMemo 从 editing 派生 initialValues
+const initialFormValues = useMemo(() => {
+  if (!editing) return undefined; // 或返回新增默认值
+  return { /* 字段映射，含 dayjs / 空值兜底 */ };
+}, [editing]);
+
+// 3. Modal 保留 destroyOnClose；Form 传 initialValues + preserve={false}
+<Modal open={formOpen} destroyOnClose ...>
+  <Form form={form} preserve={false} initialValues={initialFormValues}>
+    ...
+  </Form>
+</Modal>
+```
+
+**禁止**在 `openEdit` / `openCreate` 中调用 `form.setFieldsValue` 或 `form.resetFields()`。原因：`destroyOnClose` 会让 Form 在关闭时销毁，下次打开前 Form 尚未挂载，此时调 `setFieldsValue` 会写到一个未连接的 Form 实例上（控制台出现 "Instance created by `useForm` is not connected to any Form element" 警告，字段实际为空）。
+
+新增编辑页面时照抄以上三段结构即可，不要自创写法。
 
 ## 变更记录
 
@@ -503,7 +529,7 @@ assessment-system/
 | 2026-04-09 | 补全CLAUDE.md数据模型文档：eval_summaries/work_goal_scores/bonus_records/key_task_scores/final_results完整字段定义；eval_relations/eval_scores/score_details/score_summaries补充漏记字段 | CLAUDE.md |
 | 2026-04-09 | 阶段四完成：公共积分申报API（CRUD+自动计算规模值/复杂性值/工作量系数）、积分全量计算（售前/交付/公共/转型）、公共活动积分15%上限、积分明细与汇总生成、开方归一化得分、管理员编辑明细、Excel导出 | routers/public_score.py, score.py, services/public_score_service.py, score_service.py |
 | 2026-04-09 | 阶段五完成：互评关系自动匹配算法、互评关系管理API（生成/查看/编辑/导出）、在线评分API（提交/查看/重置）、评分汇总计算（加权/折算30分）、工作目标完成度评分（领导→公共人员）、评价进度统计 | routers/evaluation.py, services/evaluation_service.py, schemas/evaluation.py |
-| 2026-04-10 | 阶段六完成：经济指标计算（利润/自研收入/产品合同）、加减分CRUD（±10限制）、重点任务分数录入（批量）、最终成绩计算（4类考核公式）、排名（同部门同类型）、混合角色合并（50%权重）、评定等级设置、领导评语、成绩总表导出（分Sheet）、全量4Sheet导出、确认归档 | routers/economic.py, bonus.py, result.py, services/economic_service.py, bonus_service.py, result_service.py |
+| 2026-04-10 | 阶段六完成：经济指标计算（利润/自研收入/产品合同）、加减分CRUD（±10限制）、重点任务分数录入（批量）、最终成绩计算（4类考核公式）、排名（同部门同类型）、评定等级设置、领导评语、成绩总表导出（分Sheet）、全量4Sheet导出、确认归档 | routers/economic.py, bonus.py, result.py, services/economic_service.py, bonus_service.py, result_service.py |
 | 2026-04-12 | 阶段七批次4完成：工作台（角色卡片+管理员统计）、员工管理页（CRUD/导入/模板/重置密码）、项目管理页（CRUD/导入/模板/签约概率Drawer）；路由接入三个新页面 | frontend/src/pages/dashboard/, employee/, project/, router/routes.tsx |
 | 2026-04-12 | 批次4.5完成：Neumorphism软萌风+深浅色模式。主题框架（ThemeProvider/tokens/useTheme）、5个Neu组件（NeuCard/Panel/Button/Switch/Slider）、主题预览页、登录页/布局/Dashboard/业务页全面升级为Neu风格、顶栏主题切换按钮 | frontend/src/theme/, components/neu/, pages/login, layouts/BasicLayout, pages/dashboard, pages/employee, pages/project, pages/changePassword, index.css, main.tsx, routes.tsx |
 | 2026-04-12 | 批次6完成：项目参与度（PM填报+管理员概览/全量管理+同部门系数校验）、公共积分申报（员工CRUD+管理员筛选/修改工作量系数和积分）；路由接入两个新页面 | frontend/src/pages/participation/, publicScore/, router/routes.tsx |
@@ -511,6 +537,17 @@ assessment-system/
 | 2026-04-12 | 批次8完成：360评价四个子页面（互评关系管理+进度看板、我的评价任务+在线评分、评分汇总计算导出、工作目标完成度评分）；路由接入四个新页面 | frontend/src/pages/evaluation/Relations.tsx, MyTasks.tsx, Summary.tsx, WorkGoal.tsx, router/routes.tsx |
 | 2026-04-12 | 批次9完成：加减分CRUD+重点任务批量录入+导出、最终成绩计算/排名/评级Dropdown/评语/导出(分Sheet+全量4Sheet)/确认归档；路由接入两个新页面 | frontend/src/pages/bonus/, result/, router/routes.tsx |
 | 2026-04-13 | 批次10完成：个人中心（基本信息+积分汇总+考核成绩）；路由清理移除Placeholder，所有页面路由均接入真实组件 | frontend/src/pages/profile/, router/routes.tsx |
+| 2026-04-18 | 移除「混合角色」概念：每位员工仅有一个考核类型。删除 `employees.assess_type_secondary` 字段、`final_results` 表的 `is_mixed_role` 与全部 `secondary_*` 字段；移除 result_service 50% 合并分支与排名特殊处理；员工导入模板/前端表单不再支持「第二考核类型」；新增 alembic 迁移 `c8b2f4d91a07_remove_mixed_role_fields.py` | models/employee.py, models/result.py, schemas/employee.py, schemas/result.py, services/{employee,cycle,bonus,result,excel}_service.py, routers/{employee,result}.py, import_data.py, alembic/versions/c8b2f4d91a07_*.py, frontend/src/types/index.ts, frontend/src/pages/employee/index.tsx, frontend/src/pages/result/index.tsx |
+| 2026-04-18 | 「项目经理」改为派生角色（不再作为员工表角色）：① 员工表角色收窄为 管理员/普通员工/领导（新增 `EMPLOYEE_ROLES` 常量），导入时空角色默认 `普通员工`；② PM 权限从 `projects.pm_id` 动态派生 —— `get_current_user` 给 user 挂 `is_pm` 属性、`require_roles` 在允许 `项目经理` 时兼容 `is_pm=True`、登录响应 `LoginResponse` 新增 `is_pm` 字段、participation/score/economic 路由的 `ROLE_PM` 判断改为 `is_pm`；③ 项目导入的 `pm_name → pm_id` 解析去掉 `role==项目经理` 过滤，只在唯一匹配时写 `pm_id`，否则设 `pm_missing=True`（`ProjectOut` 新增该字段）；④ 员工同名检测：`get_employees` 额外返回 `duplicate_names` 集合，`EmployeeOut` 新增 `is_duplicate_name`；⑤ 前端：`EMPLOYEE_ROLES` 常量、`userStore.is_pm`、`filterRoutesByRole` 接受 `isPm` 参数、Dashboard 按 `is_pm` 条件渲染 PM 入口、员工管理页姓名列同名冲突标红、项目管理页 PM 列 `pm_missing` 时红字 + "缺少员工信息" 小字 Tooltip；⑥ 仅逻辑变更，不迁移历史数据 | backend/app/config.py, dependencies.py, schemas/{auth,employee,project}.py, services/{employee,project,excel}_service.py, routers/{auth,employee,project,participation,score,economic}.py, import_data.py, frontend/src/types/index.ts, utils/constants.ts, stores/userStore.ts, router/routes.tsx, layouts/BasicLayout.tsx, pages/{dashboard,employee,project}/index.tsx |
+| 2026-04-19 | 修复所有编辑 Modal 打开时字段为空的问题：Modal `destroyOnClose` + `form.setFieldsValue` 存在时序冲突，Form 尚未挂载时写值丢失。统一改为「`initialValues` 派生自 `editing` state + `preserve={false}`」范式，`openEdit/openCreate` 只切状态；CLAUDE.md 新增「前端开发约定」章节沉淀此规范 | frontend/src/pages/employee/index.tsx, project/index.tsx, publicScore/index.tsx, score/index.tsx, result/index.tsx, evaluation/{Relations,WorkGoal,MyTasks}.tsx, CLAUDE.md |
+| 2026-04-20 | 项目一览表字段扩展 + 经济指标核算口径调整：① 项目一览表新增 `当期确认项目利润` / `当期确认自研收入` 两列，模板表头 `签约概率` 改为 `签约概率%`（数据仍按 0~1 小数录入）；② `projects` 表新增 `current_period_profit` / `current_period_self_dev_income` 字段 + alembic 迁移 `c3c29dab530c_add_current_period_fields.py`（无历史数据迁移）；③ 经济指标核算改为以"当期确认值"为口径，员工单项目完成值 = 当期确认值 × 参与系数，员工总完成值 = 所有参与项目完成值之和；得分基于总完成值计算后按各项目完成值占比分摊到明细行；④ 产品组产品合同完成值：当期产品金额 = 当期确认自研收入 × (产品合同金额 / 自研收入)，`self_dev_income=0` 时视为 0；⑤ 废弃旧代码中 impl_method="产品+服务" ×1.2、未约定但使用产品 ×15% 的特殊规则分支（一览表外部已按此口径生成 `产品合同金额`），`_calc_income_scores` 统一走"当期确认自研收入 × 参与系数"；⑥ 经济规模系数仍依赖 `project_profit`（项目体量指标，不随当期确认值波动）；⑦ 前端项目管理页新增两列展示与表单编辑字段；CLAUDE.md 项目表字段、阶段六经济指标描述同步更新 | backend/app/models/project.py, schemas/project.py, services/{excel,project,economic}_service.py, routers/project.py, alembic/versions/c3c29dab530c_*.py, frontend/src/types/index.ts, pages/project/index.tsx, CLAUDE.md |
+| 2026-04-20 | 修复"最终成绩"与"积分统计"数据不一致的两处 bug：① **公共积分归零 bug** —— 原 `_apply_public_score_cap` 按"公共活动上限=项目积分×15%"缩减；当员工无项目积分（cap=0）时将公共积分全部置 0，导致无项目的基层管理人员 / 转型人员已申报的公共活动积分被错误抹掉。现改为**公共积分与项目积分完全独立核算**，移除整个 cap 函数及其在 `calculate_all_scores` 中的调用；业务规则第 5 条同步更新。② **跨部门归一化 bug** —— 原 `_calculate_normalized_scores` 将 `delivery_business_max` 写死为"实施交付部_业务人员"、`rd_max` 写死为"产品研发部_产品研发人员"；但员工表中这两类人员均可分布于任一部门（实施交付部有 14 名产品研发人员、产品研发部有 15 名业务人员），被"错部门"的员工 `rd_max=0`→ 归一化得分=0 → 最终成绩 `work_score=0`。现改为**按员工自身 `department + assess_type` 查 `group_max`**，业务人员、产品研发人员都走同一分支。③ 业务规则新增第 12 条归档开方归一化规则：最终成绩 `work_score` 直接等于 `score_summaries.normalized_score`，两表不一致时通常是其中一张未重算。④ 现场数据验证：刘三(产品研发人员,无项目) 公共3+转型9→总12→归一化25.1；管理员(基层管理,无项目) 公共6→总6→归一化10.65；实施交付部产品研发组内 黄芳47.6→50、何磊35.7→43.3；所有 `final_results.work_score` 与 `score_summaries.normalized_score` 完全一致 | backend/app/services/score_service.py, CLAUDE.md |
+| 2026-04-21 | 公共人员工作目标多领导评分聚合 + 评语端到端贯通：① 菜单 / 卡片标题「工作目标」→「公共人员工作目标」（`router/routes.tsx`、`pages/evaluation/WorkGoal.tsx`）；② 管理员查看该页时返回所有部门公共人员 —— `get_public_employees_for_leader` 新增 `all_departments` 开关，管理员身份下跳过部门过滤（`services/evaluation_service.py`、`routers/evaluation.py`）；③ **修复多领导评分字典键覆盖 bug**：`_load_work_goal_scores` 原 `{s.employee_id: s for ...}` 在同员工多位领导评分时只保留最后一条，导致 `FinalResult.work_goal_score` 只按一位领导的分计算；改为按 `employee_id` 聚合后取均值，返回 `dict[int, Decimal]`；`_calc_dimension_scores` 对应改为读 Decimal（`services/result_service.py`）；④ 前端 `WorkGoal.tsx` 合并逻辑同步改为聚合所有领导评分，Tag 显示均值「已评 XX」，编辑 Modal 只预填"当前用户自己"的历史记录（按 `leader_id === currentUserId` 查找）；⑤ `WorkGoalScoreOut` 新增 `leader_name`，`list_work_goals` 路由联 `Employee` 表填充；前端"评语"列按「XXX：评语\n」合并多行渲染（`schemas/evaluation.py`、`routers/evaluation.py`、`types/index.ts`）；⑥ **员工个人中心「本期考核成绩」卡片新增评语块** —— 仅在 `FinalResult` 存在（= 管理员触发计算后）时拉取 `listWorkGoals()` 并按相同格式合并展示；非公共人员返回空数组不渲染（`pages/profile/index.tsx`） | backend/app/services/{evaluation,result}_service.py, schemas/evaluation.py, routers/evaluation.py, frontend/src/router/routes.tsx, types/index.ts, pages/evaluation/WorkGoal.tsx, pages/profile/index.tsx |
+| 2026-04-21 | 互评关系匹配规则调整（与真实业务对齐）：① **业务/产研 4 同事优先级重写** —— 新增第 1 级"同项目项目经理"（我所参与项目的 PM，本人若为 PM 自动被排除）；"同项目其他成员"放开部门约束（项目跨部门，互评也跨部门）；保留后续"同部门同组 > 同部门不同组"。重写 `_pick_business_colleagues`。② **"上级领导"语义修正** —— 原来是"部门 role=领导 的第 1 位"，概念错误。改为"同组/中心的基层管理人员"（`assess_type=基层管理人员`，多人全部记录为独立评价人，汇总时取平均）；同组无基层管理时 fallback 到"部门内其他组基层管理"。③ **"部门领导"多人化** —— 原来是"部门内第 1 位 role=领导"，改为"同部门全部 role=领导"，每人一条评价关系，汇总取平均。④ **基层管理人员"部门员工"范围修正** —— 从"部门内随机抽 4 位非管理层"改为"**本组/中心全员**（排除本人和其他基层管理）"；数量随组大小动态，不再抽样。⑤ **基层管理互评扩展为全系统** —— 从"同部门其他基层管理"改为"**全系统所有其他基层管理人员**"。⑥ **公共人员"部门员工"从 4 人改为 6 人** —— 同组 3 + 同部门不同组 3；任一侧不足从另一侧补；**员工无组/中心时全部从同部门内随机抽 6 人**（新增 `_pick_public_peers` 辅助函数）。⑦ **EvalSummary 表结构调整（方案 B）** —— 删除定长 `colleague1_score ~ colleague4_score` 4 列（新规则下评价人数不定，定长列无法承载），新增 `colleague_avg_score`（同事/部门员工平均分）+ `colleague_count`（评价人数）+ `manager_mutual_score`（基层管理互评平均分，仅基层管理类型非 0）；对应 alembic 迁移 `a7f2e1b6d0c4_eval_summary_new_peer_columns.py`。`calculate_eval_summaries` 不再拆 colleague1~4，统一按 evaluator_type 归类取平均。⑧ **加权规则保持不变**（四类考核类型的百分比系数不变），仅数据来源从"固定 4 列"变为"人数加权平均"；最终折算仍是 `/100 × 30`。⑨ **同步改动**：`EvalSummaryOut` schema / `/api/evaluations/summaries/export` / `/api/results/export-all` 第 2 Sheet 列头去掉"同事 1~4"，换成"同事/部门员工平均分 + 评价人数 + 基层管理互评平均分"；前端 `types/index.ts`、`pages/evaluation/Summary.tsx` 列头同步（单列含人数小字，例："48.5 (5人)"）。⑩ **返回值**：`generate_eval_relations` 返回 `skipped_no_superior` / `skipped_no_dept_leader`（替代旧的 `skipped_no_leader`）| backend/app/models/evaluation.py, schemas/evaluation.py, services/evaluation_service.py, routers/{evaluation,result}.py, alembic/versions/a7f2e1b6d0c4_eval_summary_new_peer_columns.py, frontend/src/types/index.ts, pages/evaluation/Summary.tsx, CLAUDE.md |
+| 2026-04-21 | 互评关系三 bug 修复（基于 2026-04-21 大改后的现场测试反馈）：① **Bug1 跨类型重复评价**：同一领导同时被选入被评人的"同事/部门员工"池和"部门领导"池，导致评价人任务列表里同一被评人出现两次。根因：`_pick_business_colleagues` / `_pick_public_peers` / 基层管理的"部门员工"候选池没有过滤掉 `role=领导` / `assess_type=基层管理人员` 的员工。修复：①.1 两个 picker 新增 `excluded_ids: set` 参数（在 `_add` / `_not_excluded` 中统一过滤）；①.2 `generate_eval_relations` 头部构建 `all_leader_ids = ∪ dept_leaders.values()` 和 `all_manager_ids = {m.id for m in all_managers}`，业务/产研同事池排除 `all_leader_ids ∪ all_manager_ids`，公共人员同事池排除 `all_leader_ids`；①.3 基层管理的 `group_subs` 过滤条件追加 `m.id not in all_leader_ids`。验证：全局 `(evaluator_id, evaluatee_id)` 重复对数从 7 降到 0；领导作为 evaluator 的类型只剩"部门领导"323 条（原有 同事 2 + 部门员工 5 消失）。② **Bug2 进度条数值翻倍**：`pages/evaluation/Relations.tsx` 的 `<Progress percent>` 原本 `Math.round(progress.progress * 100)`，但后端 `get_eval_progress` 已返回百分数（`completed / total * 100`），前端再乘 100 导致 3/1194 显示为 30%。修复：`percent` 改为 `Math.round(progress.progress * 10) / 10`（保留 1 位小数）、`status` 阈值 `>= 1` → `>= 100`。③ **Bug3 "触发汇总计算"报错**：根因是 2026-04-21 大改里 `eval_summaries` 表新迁移 `a7f2e1b6d0c4_eval_summary_new_peer_columns.py` 只生成了文件、没执行，运行库还是旧 schema（保留 `colleague1~4_score` 缺 `colleague_avg_score`），INSERT 时 `sqlite3.OperationalError: no such column: eval_summaries.colleague_avg_score`。修复：`python -m alembic upgrade head`（c3c29dab530c → a7f2e1b6d0c4），升级前先 `cp data/app.db data/app.db.bak.20260421` 做备份。教训：后端改模型并写了新迁移后，必须显式 `alembic upgrade head`，应用不会自动跑迁移；开发过程中可以在 `main.py` startup 加 `command.upgrade(cfg, "head")` 的 hack，生产应走 CI/CD。④ 修复后需**重启 uvicorn 进程**才会加载新 Python 代码（Windows + `--reload` 下有时 HMR 不触发，老进程继续跑旧代码，表现为"代码明明改了但 bug 仍在" —— 应先核验当前运行态 | backend/app/services/evaluation_service.py, frontend/src/pages/evaluation/Relations.tsx, alembic/versions/a7f2e1b6d0c4_eval_summary_new_peer_columns.py (仅执行，不改动) |
+| 2026-04-21 | admin 账号保护 + 项目/员工枚举放开 + 项目类型系数动态化：① **admin 账号保护** —— 新增 `ADMIN_PHONE="13800000001"` 常量；员工导入/新增/编辑/删除/重置密码全部拒绝操作 admin 行（`validate_employee_row` / `reimport_employees` 的 DELETE 加 `phone != ADMIN_PHONE` 条件 / `reset_password` 抛 ValueError / 路由层 400-403）；admin 登录绕过"活跃周期"约束（`auth.py` 仅当 `phone != ADMIN_PHONE` 时加 cycle 过滤）；`cycle_service.create_cycle` 新增 `_ensure_admin_in_cycle` 钩子，新建周期时自动从任意现有 admin 复制过来，否则用 bcrypt("123456") 创建。② **项目类型系数表动态化（原来是 latent bug）** —— `calc_project_type_coeff` 原从 `config.DEFAULT_PROJECT_TYPE_COEFFICIENTS` 常量读，导致参数页修改永远无效；改为 `get_project_type_coeff_map(db, cycle_id)` 从 `project_type_coefficients` 表读；`calc_project_coefficients` 改 async 且接受可选 `coeff_map` 供批量导入复用；默认值从 7 条精简为 4 条（运营/运维 0.7、集成 1.0、基金课题/咨询 1.5、自研/AI 2.0）。③ **项目类型 / 实施方式 / 部门不做强校验** —— `validate_project_row` 删掉 `PROJECT_TYPES` / `IMPL_METHODS` 枚举检查，未知 `project_type` 按系数 1.0 计算并在导入响应 `warnings[]` 中列出；`ImportResult` 类型新增 `warnings?`；前端 `pages/project/index.tsx` 导入结果 Modal 增加"警告"分支渲染。④ **签约概率单位兼容** —— 新增 `normalize_signing_probability(val)`：空/异常 → 1、>1 → /100、<0 → 0、>1 → 1；`import_projects` / `update_project` / `save_signing_probabilities` 全部走此函数。⑤ **项目 / 员工编辑放开部门自由输入** —— `pages/project/index.tsx` 编辑表单的「项目类型」改为从「项目类型系数」表动态拉取的下拉，「部门」改为 Input；筛选区部门同改 Input；`pages/employee/index.tsx` 编辑表单「部门」改为 Input；**员工导入仍保留部门严格校验**（业务侧要求）。⑥ **参数页项目类型系数 Tab 支持增删** —— `pages/parameter/index.tsx` Tab3 改为可新增行（Input 自由输入类型名）/ 可删除行 / 保存时前端去重并校验非空；重置默认恢复为 4 项。⑦ `UserProfile.assess_type` 改 `string \| null` 以兼容 admin（无考核类型）。不迁移历史数据 | backend/app/config.py, auth.py, cycle_service.py, employee_service.py, project_service.py, parameter_service.py, routers/{auth,employee,project}.py, frontend/src/types/index.ts, stores/userStore.ts, pages/{project,employee,parameter}/index.tsx |
+| 2026-04-23 | 数据事故追溯：颜威（产品研发部 / 前端开发组 / Web前端开发工程师 / T7）的 `employees.assess_type` 被人为录错为"基层管理人员"（同组其他 20 名前端工程师全部是"产品研发人员"），导致 `final_results` 记录命中 `result_service._build_final_result` 的 MANAGER 分支 → `work_score_max=30, economic_score_max=30`，界面上显示"工作积分 23.24/30、经济指标 0.00/30"（期望为 50/20）；经济指标为 0 的根因是产品研发部经济核算按"前端/后端/产品/算法"分组打分，基层管理人员在产研部没有对应分支 → 完成值=0。现场只改数据不改代码 —— 定位后未直接 UPDATE，要求使用方先在员工管理页改 `assess_type` 为"产品研发人员"，再依次触发 `/api/scores/calculate`、`/api/economic/calculate`、`/api/results/calculate`（归一化公式从 `30×√总分/√全类型最高` 切到 `50×√总分/√同部门同类型最高`，`work_score` 会变）。**沉淀教训**：类似诡异的"按 30 分制显示"/"经济指标 0"要优先核查 `employees.assess_type` 是否与员工岗位匹配，特别是只有 1 人的异常类型（SQL 快速诊断：按 `department+group_name+position` 分组看 assess_type 分布） | 无代码改动，仅事故复盘与排查路径记录 |
+| 2026-04-23 | 重点任务申报独立为"填报申报"菜单项：① 原"结果管理 / 加减分 / 重点任务"双 Tab 页 `pages/bonus/index.tsx` 拆分，重点任务部分抽离为独立页 `pages/keyTask/index.tsx`，挂在"填报申报"菜单下（与项目参与度、公共积分申报并列），`roles=[ADMIN, LEADER, EMPLOYEE]`；② 加减分页 `pages/bonus/index.tsx` 去掉 Tabs / 删除 `KeyTaskScore` 相关 state·列·保存逻辑；菜单标题"加减分 / 重点任务"→"加减分"（`router/routes.tsx`）。③ **后端权限扩展** `routers/bonus.py`：`GET/POST /api/bonus/key-tasks` 和 `/batch` 三个端点的 `require_roles` 从 `[ROLE_ADMIN]` 放宽到 `[ROLE_ADMIN, ROLE_LEADER, ROLE_EMPLOYEE]`；新增 `_check_key_task_access(current_user, target_employee_id=None)` 守卫 —— 管理员/领导全权，普通员工必须 `assess_type=基层管理人员` 且 `target_employee_id` 只能是自己（或 None），其他一律 403。批量入口对 items 逐条校验 target。④ **"没有已存记录的基层管理人员在表格里看不见"历史盲区修复** `services/bonus_service.py`：`get_key_task_scores` 新增 `include_all_managers: bool = False` 参数，`True` 时补齐当前周期所有 `is_active=True` + `assess_type=基层管理人员` 员工为 `score=0` 的瞬态 `KeyTaskScore` 对象（未持久化，仅表现层占位）；router 在管理员/领导身份下传 `include_all_managers=True`，基层管理人员本人身份下本人无已存记录时 router 层兜底造一条瞬态行返回。⑤ **KeyTaskPage 职责**（`pages/keyTask/index.tsx`）：InputNumber 0~10 行内编辑 + "保存"按钮调 `/api/bonus/key-tasks/batch`；基层管理人员只看到自己一行，领导/管理员看到全部在职基层管理人员；非基层管理的普通员工访问时渲染 `Alert warning=暂无权限`（菜单层仅按 role 过滤，无法按 assess_type，故页面兜底）。⑥ 导出 Excel `/api/bonus/export` 的 Sheet2"重点任务分数"保留（供管理员一次性导出完整数据）。⑦ **KeyTaskScore 表结构扩展**：新增 `task_name`（String 200）和 `completion`（String 1000）字段；新迁移 `b5e82d3f1a49_key_task_application_fields.py` 先 `DELETE FROM key_task_scores` 清空历史聚合分（按用户要求不迁移），再 `batch_alter_table` 添加两列（`server_default=''` 兼容 SQLite NOT NULL）。⑧ **业务模式改变**：从"管理员为每位基层管理人员录一行聚合分"变为"基层管理人员自行申请，单员工可多条，每条独立 `task_name + completion + score(1~10)`，单员工全部申请合计 ≤10（业务层强校验）"；`schemas/bonus.py` 新增 `KeyTaskScoreCreate`、`KeyTaskScoreUpdate` 改签去掉 `employee_id`、`KeyTaskScoreOut` 新增两字段；`pages/keyTask/index.tsx` 表单含「任务名 / 完成情况 / 申请分值」三列。⑨ **未改动**：`services/result_service.py` 对重点任务的读用方式（仍按员工汇总取 score 之和）、`routers/bonus.py` 的加减分 CRUD 权限 | backend/app/models/bonus.py, schemas/bonus.py, routers/bonus.py, services/bonus_service.py, alembic/versions/b5e82d3f1a49_*.py, frontend/src/pages/keyTask/index.tsx (新建), pages/bonus/index.tsx, router/routes.tsx, CLAUDE.md |
 
 ### 阶段四：积分计算与公共积分申报 ✅
 
@@ -528,9 +565,9 @@ assessment-system/
 ### 阶段五：360评价 ✅
 
 - **互评关系自动匹配算法**：POST /api/evaluations/relations/generate 触发
-  - 业务人员/产品研发人员：自动匹配4个同事（优先级：同部门同项目>同组>同部门不同组）+ 上级领导 + 部门领导
-  - 基层管理人员：自动匹配4个部门员工 + 其他基层管理互评 + 部门领导
-  - 公共人员：自动匹配4个部门员工 + 部门领导
+  - 业务人员/产品研发人员：自动匹配4个同事（优先级：**同项目项目经理** > 同项目其他成员（跨部门）> 同部门同组 > 同部门不同组；本人若为 PM 自动跳过）+ **同组/中心全部基层管理人员**（作为"上级领导"，多人取平均；同组无则 fallback 到部门内基层管理）+ **同部门全部 role=领导**（作为"部门领导"，多人取平均）
+  - 基层管理人员：**本组/中心全员**（非管理层，作为"部门员工"）+ **全系统其他基层管理人员**（作为"基层管理互评"，全选取平均）+ **同部门全部 role=领导**（多人取平均）
+  - 公共人员：**部门员工 6 人**（同组 3 + 同部门不同组 3；任一侧不足从另一侧补；无组时全部从同部门随机抽）+ **同部门全部 role=领导**（多人取平均）
 - **互评关系管理 API**：查看（GET）、编辑评价人（PUT）、导出Excel（GET /api/evaluations/relations/export）
 - **在线评分 API**：获取评价任务（GET /api/evaluations/my-tasks）、获取评分维度（GET /api/evaluations/dimensions）、提交评分（POST /api/evaluations/scores）
   - 评分维度按考核类型区分：业务人员(工作任务完成度60+工作态度40)、产品研发人员(工作任务完成度60+工作态度40)、基层管理人员(能力40+管理40+态度20)、公共人员(工作能力60+工作态度40)
@@ -548,9 +585,11 @@ assessment-system/
 ### 阶段六：经济指标、加减分与最终成绩 ✅
 
 - **经济指标计算 API**：POST /api/economic/calculate 触发全量计算
-  - 实施交付部：项目利润区块，得分 = 满分 × 完成值 / (人均目标值 × 指标系数)，业务人员满分20、基层管理满分30
-  - 产品研发部：自研收入区块，前端/后端组20分制，产品组15+5(产品合同)，算法组15+5(科技创新)
-  - 产品化收入特殊规则：合同约定产品(×1.2)、未约定但使用产品(自研15%)
+  - 口径：以项目一览表 `当期确认项目利润` / `当期确认自研收入` 为准；员工单项目完成值 = 当期确认值 × 参与系数；员工总完成值 = 其所有参与项目完成值之和，得分基于总完成值核算，再按各项目完成值占比分摊到明细行展示
+  - 实施交付部：项目利润区块，得分 = 满分 × 总完成值 / (人均目标值 × 指标系数)，业务人员满分20、基层管理满分30
+  - 产品研发部：自研收入区块，前端/后端组20分制，产品组 15+5(产品合同)，算法组 15+5(科技创新)
+    - 产品组：当期产品金额 = 当期确认自研收入 × (产品合同金额 / 自研收入)；产品合同完成值 = 当期产品金额 × 参与系数（`self_dev_income = 0` 时视为 0）
+  - 旧版 impl_method="产品+服务" ×1.2 / 未约定但使用产品 ×15% 的口径由一览表外部预生成 `产品合同金额` 列承载，系统不再做此变换
 - **经济指标查询/导出**：GET /api/economic/details、/summary、/export
 - **加减分记录 CRUD**：GET/POST/DELETE /api/bonus/records
   - 单员工加减分总和限制-10~+10
@@ -563,7 +602,6 @@ assessment-system/
   - 业务人员：工作积分(50) + 经济指标(20) + 综合评价(30) + 加减分(±10)
   - 产品研发人员：工作积分(50) + 经济指标(20) + 综合评价(30) + 加减分(±10)
 - **排名**：同部门同考核类型内按总分降序，同分按工作积分→经济指标降序
-- **混合角色合并**：两种身份分别计算后取50%权重合并
 - **评定等级**：PUT /api/results/{id}/rating，管理员手动设置（优秀/合格/基本合格/不合格）
 - **领导评语**：PUT /api/results/{id}/comment，管理员/领导可编辑
 - **成绩总表导出**：GET /api/results/export，按考核类型分Sheet

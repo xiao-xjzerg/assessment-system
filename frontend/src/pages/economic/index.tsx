@@ -17,6 +17,7 @@ import {
   Select,
   Tabs,
   Tag,
+  Tooltip,
   App as AntdApp,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -210,6 +211,26 @@ export default function EconomicPage() {
   ];
 
   // ==================== 汇总表列 ====================
+  const buildEconomicFormula = (record: EconomicSummary): string => {
+    const items = record.breakdown || [];
+    if (items.length === 0) {
+      return `得分 = 满分 × 完成值 / (人均目标值 × 指标系数)\n\n暂无明细数据`;
+    }
+    const lines: string[] = ['得分 = 满分 × 完成值 / (人均目标值 × 指标系数)', ''];
+    items.forEach((it, idx) => {
+      const denominator = Number(it.target_value) * Number(it.indicator_coeff);
+      lines.push(
+        `${idx + 1}. ${it.project_name} [${it.indicator_type}]`,
+        `   完成值=原始值×参与系数=${formatNumber(it.raw_value)}×${formatCoeff(it.participation_coeff)}=${formatNumber(it.completed_value)}`,
+        `   得分 = ${formatNumber(it.full_mark)} × ${formatNumber(it.completed_value)} / (${formatNumber(it.target_value)} × ${formatCoeff(it.indicator_coeff)})`,
+        `       = ${formatNumber(it.full_mark)} × ${formatNumber(it.completed_value)} / ${formatNumber(denominator)}`,
+        `       = ${formatNumber(it.score)}`,
+      );
+    });
+    lines.push('', `总分 = ${items.map((it) => formatNumber(it.score)).join(' + ')} = ${formatNumber(record.total_score)}`);
+    return lines.join('\n');
+  };
+
   const summaryColumns: ColumnsType<EconomicSummary> = [
     { title: '员工姓名', dataIndex: 'employee_name', width: 100, fixed: 'left' },
     { title: '部门', dataIndex: 'department', width: 120 },
@@ -221,8 +242,17 @@ export default function EconomicPage() {
       dataIndex: 'total_score',
       width: 120,
       align: 'right',
-      render: (v: number) => (
-        <Tag color="geekblue" style={{ fontWeight: 600 }}>{formatNumber(v)}</Tag>
+      render: (v: number, record: EconomicSummary) => (
+        <Tooltip
+          title={
+            <pre style={{ margin: 0, fontFamily: 'inherit', whiteSpace: 'pre-wrap' }}>
+              {buildEconomicFormula(record)}
+            </pre>
+          }
+          overlayStyle={{ maxWidth: 560 }}
+        >
+          <Tag color="geekblue" style={{ fontWeight: 600, cursor: 'help' }}>{formatNumber(v)}</Tag>
+        </Tooltip>
       ),
     },
   ];

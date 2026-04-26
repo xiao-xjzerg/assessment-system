@@ -1,19 +1,25 @@
 """经济指标计算业务逻辑
 
-经济指标计算规则（PRD M7）：
-1. 项目利润区块（实施交付部交付经理/运营经理）：
+经济指标以「项目一览表」的 `当期确认项目利润` / `当期确认自研收入` 为准：
+员工单项目完成值 = 当期确认值 × 参与系数
+员工完成值 = 该员工在所有参与项目上完成值的累加
+
+1. 项目利润区块（实施交付部）：
    得分 = 满分 × 完成值 / (所在部门人均目标值 × 指标系数)
-   满分：业务人员20分，基层管理人员30分
+   满分：业务人员 20 分，基层管理人员 30 分
    得分上限为满分值
 
-2. 自研收入区块（产品研发部全员）：
-   产品化收入特殊规则：
-   ①合同明确约定产品内容(impl_method='产品+服务')：核算收入 = 产品部分收入 × 参与系数 × 1.2
-   ②未约定但实际使用产品的：核算收入 = 项目自研收入的15% × 参与系数
-   各组得分计算差异：
-   前端组/后端组：得分 = 20 × 完成值 / (部门人均目标值 × 指标系数)
-   产品组：得分 = 15 × 自研完成值/(目标值×指标系数) + 5 × 产品合同完成值/产品合同目标值
-   算法组：得分 = 15 × 自研完成值/(目标值×指标系数) + 5 × 科技创新完成值/科技创新目标值
+2. 自研收入区块（产品研发部）：
+   前端组 / 后端组：20 × 自研完成值 / (人均目标值 × 指标系数)
+   产品组：15 × 自研完成值 / (人均目标值 × 指标系数) + 5 × 产品合同完成值 / 产品合同目标值
+     其中 当期产品金额 = 当期确认自研收入 × (产品合同金额 / 自研收入)
+          产品合同完成值 = 当期产品金额 × 参与系数
+          （self_dev_income = 0 时当期产品金额视为 0）
+   算法组：15 × 自研完成值 / (人均目标值 × 指标系数) + 5 × 科技创新完成值 / 科技创新目标值
+     （科技创新完成值当前以自研完成值近似）
+
+注：一览表中 `产品合同金额` 列由外部按 `合同产品部分×1.2` 或 `项目自研收入×15%` 口径预先生成，
+本系统不再做此类变换，统一直接读取字段值按上述公式核算。
 """
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
@@ -32,8 +38,6 @@ from app.config import (
 
 D = Decimal
 ZERO = D("0")
-D_015 = D("0.15")
-D_1_2 = D("1.2")
 
 
 async def calculate_economic_indicators(db: AsyncSession, cycle_id: int) -> list[dict]:
@@ -100,48 +104,46 @@ def _calc_profit_scores(
     # 获取所在部门/组的人均利润目标值
     target = _get_dept_profit_target(dept_targets, emp.department, emp.group_name)
 
+    # 累加员工在所有项目上的完成值
+    denominator = target * grade_coeff
+    total_completed = ZERO
+    project_rows = []
+
     for part in emp_participations:
         project = projects.get(part.project_id)
         if project is None:
             continue
 
-        profit = D(str(project.project_profit or 0))
+        current_profit = D(str(project.current_period_profit or 0))
         part_coeff = D(str(part.participation_coeff or 0))
-        completed_value = (profit * part_coeff).quantize(D("0.01"), rounding=ROUND_HALF_UP)
+        completed_value = (current_profit * part_coeff).quantize(D("0.01"), rounding=ROUND_HALF_UP)
+        total_completed += completed_value
 
-        # 得分 = 满分 × 完成值 / (目标值 × 指标系数)
-        denominator = target * grade_coeff
-        if denominator > 0:
-            score = (full_mark * completed_value / denominator).quantize(
-                D("0.01"), rounding=ROUND_HALF_UP
-            )
-        else:
-            score = ZERO
-
-        # 上限
-        if score > full_mark:
-            score = full_mark
-        if score < ZERO:
-            score = ZERO
-
-        results.append({
-            "employee_id": emp.id,
-            "employee_name": emp.name,
-            "department": emp.department,
-            "group_name": emp.group_name or "",
-            "grade": emp.grade or "",
-            "assess_type": emp.assess_type,
+        project_rows.append({
             "project_id": project.id,
             "project_name": project.project_name,
-            "indicator_type": "利润",
-            "raw_value": float(profit),
+            "raw_value": float(current_profit),
             "participation_coeff": float(part_coeff),
             "completed_value": float(completed_value),
-            "target_value": float(target),
-            "indicator_coeff": float(grade_coeff),
-            "full_mark": float(full_mark),
-            "score": float(score),
         })
+
+    # 按总完成值计算员工总得分
+    if denominator > 0:
+        total_score = (full_mark * total_completed / denominator).quantize(
+            D("0.01"), rounding=ROUND_HALF_UP
+        )
+    else:
+        total_score = ZERO
+    if total_score > full_mark:
+        total_score = full_mark
+    if total_score < ZERO:
+        total_score = ZERO
+
+    _append_proportional_rows(
+        results, emp, emp.group_name or "", "利润", project_rows,
+        total_completed, total_score,
+        float(target), float(grade_coeff), float(full_mark),
+    )
 
     return results
 
@@ -150,17 +152,22 @@ def _calc_income_scores(
     emp, emp_participations, projects, dept_targets,
     special_targets, grade_coeff
 ) -> list[dict]:
-    """计算产品研发部员工的自研收入得分"""
+    """计算产品研发部员工的自研收入得分（以"当期确认自研收入"为口径累加核算）"""
     results = []
-    full_mark = D("20")  # 产品研发人员经济指标满分20分
+    full_mark = D("20")  # 产品研发人员经济指标满分 20
 
-    # 获取自研收入目标值
     income_target = _get_dept_income_target(dept_targets, emp.department, emp.group_name)
-    # 专项目标值
     product_contract_target = special_targets.get("产品合同目标值", ZERO)
     tech_innovation_target = special_targets.get("科技创新目标值", ZERO)
 
     group = emp.group_name or ""
+    denominator = income_target * grade_coeff
+
+    # 归集员工在所有项目上的自研完成值 / 产品合同完成值
+    income_rows = []
+    product_rows = []
+    total_income_completed = ZERO
+    total_product_completed = ZERO
 
     for part in emp_participations:
         project = projects.get(part.project_id)
@@ -168,100 +175,146 @@ def _calc_income_scores(
             continue
 
         part_coeff = D(str(part.participation_coeff or 0))
+        current_income = D(str(project.current_period_self_dev_income or 0))
+        income_completed = (current_income * part_coeff).quantize(
+            D("0.01"), rounding=ROUND_HALF_UP
+        )
+        total_income_completed += income_completed
 
-        # 自研收入计算（含产品化收入特殊规则）
-        self_dev_income = D(str(project.self_dev_income or 0))
+        income_rows.append({
+            "project_id": project.id,
+            "project_name": project.project_name,
+            "raw_value": float(current_income),
+            "participation_coeff": float(part_coeff),
+            "completed_value": float(income_completed),
+        })
 
-        # 产品化收入特殊规则
-        if project.impl_method == "产品+服务":
-            # ①合同明确约定产品内容：核算收入 = 产品部分收入 × 参与系数 × 1.2
-            product_income = D(str(project.product_contract_amount or 0))
-            completed_value = (product_income * part_coeff * D_1_2).quantize(
+        if group == "产品组":
+            # 当期产品金额 = 当期确认自研收入 × (产品合同金额 / 自研收入)
+            self_dev_total = D(str(project.self_dev_income or 0))
+            product_amount = D(str(project.product_contract_amount or 0))
+            if self_dev_total > 0:
+                current_product = current_income * product_amount / self_dev_total
+            else:
+                current_product = ZERO
+            product_completed = (current_product * part_coeff).quantize(
+                D("0.01"), rounding=ROUND_HALF_UP
+            )
+            total_product_completed += product_completed
+            if product_completed != 0:
+                product_rows.append({
+                    "project_id": project.id,
+                    "project_name": project.project_name,
+                    "raw_value": float(current_product.quantize(D("0.01"), rounding=ROUND_HALF_UP)),
+                    "participation_coeff": float(part_coeff),
+                    "completed_value": float(product_completed),
+                })
+
+    if group == "产品组":
+        if denominator > 0:
+            income_part = D("15") * total_income_completed / denominator
+        else:
+            income_part = ZERO
+        if income_part > D("15"):
+            income_part = D("15")
+        if income_part < ZERO:
+            income_part = ZERO
+
+        if product_contract_target > 0:
+            product_part = D("5") * total_product_completed / product_contract_target
+        else:
+            product_part = ZERO
+        if product_part > D("5"):
+            product_part = D("5")
+        if product_part < ZERO:
+            product_part = ZERO
+
+        income_part = income_part.quantize(D("0.01"), rounding=ROUND_HALF_UP)
+        product_part = product_part.quantize(D("0.01"), rounding=ROUND_HALF_UP)
+
+        _append_proportional_rows(
+            results, emp, group, "自研收入", income_rows,
+            total_income_completed, income_part,
+            float(income_target), float(grade_coeff), 15.0,
+        )
+        _append_proportional_rows(
+            results, emp, group, "产品合同", product_rows,
+            total_product_completed, product_part,
+            float(product_contract_target), float(grade_coeff), 5.0,
+        )
+
+    elif group == "算法组":
+        if denominator > 0:
+            income_part = D("15") * total_income_completed / denominator
+        else:
+            income_part = ZERO
+        if income_part > D("15"):
+            income_part = D("15")
+        if income_part < ZERO:
+            income_part = ZERO
+
+        # 科技创新完成值以自研完成值近似
+        if tech_innovation_target > 0:
+            tech_part = D("5") * total_income_completed / tech_innovation_target
+        else:
+            tech_part = ZERO
+        if tech_part > D("5"):
+            tech_part = D("5")
+        if tech_part < ZERO:
+            tech_part = ZERO
+
+        combined_part = (income_part + tech_part).quantize(D("0.01"), rounding=ROUND_HALF_UP)
+        if combined_part > full_mark:
+            combined_part = full_mark
+
+        _append_proportional_rows(
+            results, emp, group, "自研收入", income_rows,
+            total_income_completed, combined_part,
+            float(income_target), float(grade_coeff), float(full_mark),
+        )
+
+    else:
+        if denominator > 0:
+            total_score = (full_mark * total_income_completed / denominator).quantize(
                 D("0.01"), rounding=ROUND_HALF_UP
             )
         else:
-            # ②未约定但实际使用产品的（或普通项目）：核算收入 = 自研收入 × 参与系数
-            # 对于有产品使用的：核算收入 = 项目自研收入的15% × 参与系数
-            if self_dev_income > 0 and D(str(project.product_contract_amount or 0)) > 0:
-                completed_value = (self_dev_income * D_015 * part_coeff).quantize(
-                    D("0.01"), rounding=ROUND_HALF_UP
-                )
-            else:
-                completed_value = (self_dev_income * part_coeff).quantize(
-                    D("0.01"), rounding=ROUND_HALF_UP
-                )
+            total_score = ZERO
+        if total_score > full_mark:
+            total_score = full_mark
+        if total_score < ZERO:
+            total_score = ZERO
 
-        # 根据组别计算得分
-        denominator = income_target * grade_coeff
+        _append_proportional_rows(
+            results, emp, group, "自研收入", income_rows,
+            total_income_completed, total_score,
+            float(income_target), float(grade_coeff), float(full_mark),
+        )
 
-        if group == "产品组":
-            # 产品组：15 × 自研完成值/(目标值×指标系数) + 5 × 产品合同完成值/产品合同目标值
-            if denominator > 0:
-                income_part = D("15") * completed_value / denominator
-            else:
-                income_part = ZERO
+    return results
 
-            product_amount = D(str(project.product_contract_amount or 0))
-            product_completed = (product_amount * part_coeff).quantize(D("0.01"), rounding=ROUND_HALF_UP)
-            if product_contract_target > 0:
-                product_part = D("5") * product_completed / product_contract_target
-            else:
-                product_part = ZERO
 
-            score = (income_part + product_part).quantize(D("0.01"), rounding=ROUND_HALF_UP)
-
-            # 额外记录产品合同明细
-            if product_amount > 0:
-                results.append({
-                    "employee_id": emp.id,
-                    "employee_name": emp.name,
-                    "department": emp.department,
-                    "group_name": group,
-                    "grade": emp.grade or "",
-                    "assess_type": emp.assess_type,
-                    "project_id": project.id,
-                    "project_name": project.project_name,
-                    "indicator_type": "产品合同",
-                    "raw_value": float(product_amount),
-                    "participation_coeff": float(part_coeff),
-                    "completed_value": float(product_completed),
-                    "target_value": float(product_contract_target),
-                    "indicator_coeff": float(grade_coeff),
-                    "full_mark": 5.0,
-                    "score": float(product_part.quantize(D("0.01"), rounding=ROUND_HALF_UP)),
-                })
-
-        elif group == "算法组":
-            # 算法组：15 × 自研完成值/(目标值×指标系数) + 5 × 科技创新完成值/科技创新目标值
-            if denominator > 0:
-                income_part = D("15") * completed_value / denominator
-            else:
-                income_part = ZERO
-
-            # 科技创新使用自研收入作为创新值近似
-            tech_completed = completed_value
-            if tech_innovation_target > 0:
-                tech_part = D("5") * tech_completed / tech_innovation_target
-            else:
-                tech_part = ZERO
-
-            score = (income_part + tech_part).quantize(D("0.01"), rounding=ROUND_HALF_UP)
-
+def _append_proportional_rows(
+    results, emp, group, indicator_type, project_rows,
+    total_completed, total_score,
+    target_value, indicator_coeff, full_mark,
+):
+    """将员工总得分按各项目完成值占比分摊到明细行，方便页面展示与求和。
+    最后一行兜底，保证分摊后各行之和等于总得分。"""
+    total_completed_d = D(str(total_completed))
+    total_score_d = D(str(total_score))
+    remaining = total_score_d
+    for i, row in enumerate(project_rows):
+        completed = D(str(row["completed_value"]))
+        if i == len(project_rows) - 1:
+            share = remaining
+        elif total_completed_d > 0:
+            share = (total_score_d * completed / total_completed_d).quantize(
+                D("0.01"), rounding=ROUND_HALF_UP
+            )
+            remaining -= share
         else:
-            # 前端组/后端组：20 × 自研完成值/(目标值×指标系数)
-            if denominator > 0:
-                score = (full_mark * completed_value / denominator).quantize(
-                    D("0.01"), rounding=ROUND_HALF_UP
-                )
-            else:
-                score = ZERO
-
-        # 上限
-        if score > full_mark:
-            score = full_mark
-        if score < ZERO:
-            score = ZERO
-
+            share = ZERO
         results.append({
             "employee_id": emp.id,
             "employee_name": emp.name,
@@ -269,19 +322,17 @@ def _calc_income_scores(
             "group_name": group,
             "grade": emp.grade or "",
             "assess_type": emp.assess_type,
-            "project_id": project.id,
-            "project_name": project.project_name,
-            "indicator_type": "自研收入",
-            "raw_value": float(self_dev_income),
-            "participation_coeff": float(part_coeff),
-            "completed_value": float(completed_value),
-            "target_value": float(income_target),
-            "indicator_coeff": float(grade_coeff),
-            "full_mark": float(full_mark),
-            "score": float(score),
+            "project_id": row["project_id"],
+            "project_name": row["project_name"],
+            "indicator_type": indicator_type,
+            "raw_value": row["raw_value"],
+            "participation_coeff": row["participation_coeff"],
+            "completed_value": row["completed_value"],
+            "target_value": target_value,
+            "indicator_coeff": indicator_coeff,
+            "full_mark": full_mark,
+            "score": float(share),
         })
-
-    return results
 
 
 def _get_indicator_coeff(indicator_coeffs: dict[str, D], grade: Optional[str]) -> D:

@@ -18,6 +18,9 @@ JWT_ACCESS_TOKEN_EXPIRE_HOURS = 8
 # 密码配置
 DEFAULT_PASSWORD_SUFFIX_LENGTH = 6  # 取手机号后6位作为初始密码
 
+# 系统内置管理员账号（受保护，任何导入/删除/修改均不得影响）
+ADMIN_PHONE = "13800000001"
+
 # 分页默认值
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
@@ -33,10 +36,12 @@ ASSESSMENT_PHASES = {
 
 # 角色定义
 ROLE_ADMIN = "管理员"
-ROLE_PM = "项目经理"
+ROLE_PM = "项目经理"  # 派生角色：根据项目一览表中的 pm_id 动态判定，不出现在员工表
 ROLE_EMPLOYEE = "普通员工"
 ROLE_LEADER = "领导"
 ALL_ROLES = [ROLE_ADMIN, ROLE_PM, ROLE_EMPLOYEE, ROLE_LEADER]
+# 员工信息表中允许出现的角色（项目经理由项目一览表派生，不再进员工表）
+EMPLOYEE_ROLES = [ROLE_ADMIN, ROLE_EMPLOYEE, ROLE_LEADER]
 
 # 考核类型定义
 ASSESS_TYPE_MANAGER = "基层管理人员"
@@ -56,15 +61,12 @@ PROJECT_TYPES = ["集成", "综合", "自研", "运营"]
 # 实施方式
 IMPL_METHODS = ["服务", "产品+服务"]
 
-# 项目类型系数默认值
+# 项目类型系数默认值（权威数据源：数据库 project_type_coefficients 表；此处仅为新周期的初始种子）
 DEFAULT_PROJECT_TYPE_COEFFICIENTS = {
-    "运营": 0.7,
-    "运维": 0.7,
+    "运营/运维": 0.7,
     "集成": 1.0,
-    "基金课题": 1.5,
-    "咨询": 1.5,
-    "AI": 2.0,
-    "自研": 2.0,
+    "基金课题/咨询": 1.5,
+    "自研/AI": 2.0,
 }
 
 # 员工指标系数默认值

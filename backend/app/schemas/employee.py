@@ -11,8 +11,7 @@ class EmployeeCreate(BaseModel):
     grade: Optional[str] = Field(None, description="岗级")
     phone: str = Field(..., description="联系方式（手机号）")
     role: str = Field(..., description="角色")
-    assess_type: str = Field(..., description="考核类型")
-    assess_type_secondary: Optional[str] = Field(None, description="第二考核类型")
+    assess_type: Optional[str] = Field(None, description="考核类型（领导可为空）")
 
 
 class EmployeeUpdate(BaseModel):
@@ -24,7 +23,6 @@ class EmployeeUpdate(BaseModel):
     phone: Optional[str] = None
     role: Optional[str] = None
     assess_type: Optional[str] = None
-    assess_type_secondary: Optional[str] = None
     is_active: Optional[bool] = None
     rating: Optional[str] = None
     leader_comment: Optional[str] = None
@@ -40,11 +38,11 @@ class EmployeeOut(BaseModel):
     grade: Optional[str] = None
     phone: str
     role: str
-    assess_type: str
-    assess_type_secondary: Optional[str] = None
+    assess_type: Optional[str] = None
     is_active: bool
     status: Optional[str] = None
     rating: Optional[str] = None
     leader_comment: Optional[str] = None
+    is_duplicate_name: bool = False  # 同周期内是否存在同名员工
 
     model_config = {"from_attributes": True}

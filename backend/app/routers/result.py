@@ -55,6 +55,8 @@ async def list_results(
     department: Optional[str] = Query(None),
     assess_type: Optional[str] = Query(None),
     employee_name: Optional[str] = Query(None),
+    group_name: Optional[str] = Query(None),
+    position: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: Employee = Depends(get_current_user),
 ):
@@ -70,6 +72,8 @@ async def list_results(
             department=department,
             assess_type=assess_type,
             employee_name=employee_name,
+            group_name=group_name,
+            position=position,
         )
     else:
         items = await get_final_results(
@@ -130,13 +134,19 @@ async def export_excel(
     db: AsyncSession = Depends(get_db),
     current_user: Employee = Depends(require_roles([ROLE_ADMIN])),
 ):
-    """导出最终考核成绩总表。按部门和考核类型分Sheet导出。"""
+    """导出最终考核成绩总表。按考核类型分Sheet，统一 11 列 + 评语。"""
     cycle = await _get_active_cycle(db)
     all_results = await get_final_results(db, cycle.id)
 
     from openpyxl import Workbook
     wb = Workbook()
     wb.remove(wb.active)  # 移除默认Sheet
+
+    headers = [
+        "姓名", "部门", "组/中心", "岗位", "岗级", "考核类型",
+        "工作积分", "经济指标", "重点任务",
+        "综合评价", "加减分", "总分", "评语",
+    ]
 
     # 按考核类型分组
     type_groups = {}
@@ -145,55 +155,17 @@ async def export_excel(
 
     for assess_type, items in type_groups.items():
         ws = wb.create_sheet(title=assess_type[:31])  # Sheet名称最长31字符
-
-        if assess_type == ASSESS_TYPE_MANAGER:
-            headers = [
-                "姓名", "部门", "组/中心", "岗级",
-                "工作积分得分(/30)", "经济指标得分(/30)",
-                "重点任务得分(/10)", "综合评价得分(/30)",
-                "加减分(±10)", "总分", "排名", "评定等级", "备注",
-            ]
-        elif assess_type == ASSESS_TYPE_PUBLIC:
-            headers = [
-                "姓名", "部门", "组/中心", "岗级",
-                "工作目标完成度得分(/70)", "综合评价得分(/30)",
-                "加减分(±10)", "总分", "排名", "评定等级", "备注",
-            ]
-        else:
-            headers = [
-                "姓名", "部门", "组/中心", "岗级",
-                "工作积分得分(/50)", "经济指标得分(/20)",
-                "综合评价得分(/30)", "加减分(±10)",
-                "总分", "排名", "评定等级", "备注",
-            ]
-
         ws.append(headers)
-
         for r in items:
-            remark = "混合角色" if r.is_mixed_role else ""
-            if assess_type == ASSESS_TYPE_MANAGER:
-                row = [
-                    r.employee_name, r.department, r.group_name, r.grade,
-                    float(r.work_score), float(r.economic_score),
-                    float(r.key_task_score), float(r.eval_score),
-                    float(r.bonus_score), float(r.total_score),
-                    r.ranking, r.rating or "", remark,
-                ]
-            elif assess_type == ASSESS_TYPE_PUBLIC:
-                row = [
-                    r.employee_name, r.department, r.group_name, r.grade,
-                    float(r.work_goal_score), float(r.eval_score),
-                    float(r.bonus_score), float(r.total_score),
-                    r.ranking, r.rating or "", remark,
-                ]
-            else:
-                row = [
-                    r.employee_name, r.department, r.group_name, r.grade,
-                    float(r.work_score), float(r.economic_score),
-                    float(r.eval_score), float(r.bonus_score),
-                    float(r.total_score), r.ranking, r.rating or "", remark,
-                ]
-            ws.append(row)
+            ws.append([
+                r.employee_name, r.department, r.group_name or "",
+                r.position or "", r.grade or "", r.assess_type,
+                float(r.work_score), float(r.economic_score),
+                float(r.key_task_score),
+                float(r.eval_score),
+                float(r.bonus_score), float(r.total_score),
+                r.leader_comment or "",
+            ])
 
         # 设置列宽
         for col_cells in ws.columns:
@@ -263,16 +235,16 @@ async def export_all_reports(
     ws2 = wb.create_sheet("综合测评表")
     ws2.append([
         "所属部门", "被测评人", "岗位", "考核类型",
-        "同事1评分", "同事2评分", "同事3评分", "同事4评分",
-        "上级领导评分", "部门领导评分",
+        "同事/部门员工平均分", "评价人数",
+        "上级领导平均分", "部门领导平均分", "基层管理互评平均分",
         "加权汇总得分", "最终得分(/30)",
     ])
     for e in eval_summaries:
         ws2.append([
             e.department, e.employee_name, e.position or "", e.assess_type,
-            float(e.colleague1_score), float(e.colleague2_score),
-            float(e.colleague3_score), float(e.colleague4_score),
+            float(e.colleague_avg_score), int(e.colleague_count or 0),
             float(e.superior_score), float(e.dept_leader_score),
+            float(e.manager_mutual_score or 0),
             float(e.weighted_total), float(e.final_score),
         ])
 
@@ -299,19 +271,18 @@ async def export_all_reports(
     all_results = await get_final_results(db, cycle.id)
     ws4 = wb.create_sheet("最终考核成绩总表")
     ws4.append([
-        "姓名", "部门", "组/中心", "岗级", "考核类型",
-        "工作积分得分", "经济指标得分", "重点任务得分",
-        "工作目标完成度得分", "综合评价得分", "加减分",
-        "总分", "排名", "评定等级", "混合角色", "领导评语",
+        "姓名", "部门", "组/中心", "岗位", "岗级", "考核类型",
+        "工作积分", "经济指标", "重点任务",
+        "综合评价", "加减分", "总分", "评语",
     ])
     for r in all_results:
         ws4.append([
-            r.employee_name, r.department, r.group_name, r.grade, r.assess_type,
+            r.employee_name, r.department, r.group_name or "",
+            r.position or "", r.grade or "", r.assess_type,
             float(r.work_score), float(r.economic_score),
-            float(r.key_task_score), float(r.work_goal_score),
-            float(r.eval_score), float(r.bonus_score),
-            float(r.total_score), r.ranking, r.rating or "",
-            "是" if r.is_mixed_role else "",
+            float(r.key_task_score),
+            float(r.eval_score),
+            float(r.bonus_score), float(r.total_score),
             r.leader_comment or "",
         ])
 

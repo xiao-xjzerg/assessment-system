@@ -9,6 +9,8 @@ from app.config import (
     ASSESSMENT_PHASES,
     DEFAULT_PROJECT_TYPE_COEFFICIENTS,
     DEFAULT_INDICATOR_COEFFICIENTS,
+    ADMIN_PHONE,
+    ROLE_ADMIN,
 )
 
 
@@ -48,6 +50,9 @@ async def create_cycle(db: AsyncSession, name: str) -> Cycle:
     # 如果有上一周期，继承员工数据和参数
     if prev_cycle:
         await _inherit_from_previous(db, prev_cycle.id, cycle.id)
+
+    # 确保新周期内存在系统管理员 admin（兜底保障：任何数据状态下 admin 都在）
+    await _ensure_admin_in_cycle(db, cycle.id)
 
     return cycle
 
@@ -107,6 +112,58 @@ async def update_phase(db: AsyncSession, cycle_id: int, action: str) -> Cycle:
     return cycle
 
 
+async def _ensure_admin_in_cycle(db: AsyncSession, cycle_id: int):
+    """保证指定周期内存在系统管理员 admin 行。
+
+    若当前周期已有 admin（通常由上一周期继承过来），不动它；
+    若没有，从其他任意周期复制一条 admin；
+    若整个系统都还没有 admin（极端场景），按默认模板重建。
+    """
+    from passlib.context import CryptContext
+
+    existing = await db.scalar(
+        select(Employee).where(
+            Employee.cycle_id == cycle_id, Employee.phone == ADMIN_PHONE
+        )
+    )
+    if existing is not None:
+        return
+
+    any_admin = await db.scalar(
+        select(Employee).where(Employee.phone == ADMIN_PHONE).limit(1)
+    )
+    if any_admin is not None:
+        db.add(Employee(
+            cycle_id=cycle_id,
+            name=any_admin.name,
+            department=any_admin.department,
+            group_name=any_admin.group_name,
+            position=any_admin.position,
+            grade=any_admin.grade,
+            phone=any_admin.phone,
+            password_hash=any_admin.password_hash,
+            role=any_admin.role,
+            assess_type=any_admin.assess_type,
+            is_active=True,
+        ))
+    else:
+        pwd = CryptContext(schemes=["bcrypt"]).hash("123456")
+        db.add(Employee(
+            cycle_id=cycle_id,
+            name="系统管理员",
+            department="系统",
+            group_name=None,
+            position="管理员",
+            grade=None,
+            phone=ADMIN_PHONE,
+            password_hash=pwd,
+            role=ROLE_ADMIN,
+            assess_type=None,
+            is_active=True,
+        ))
+    await db.flush()
+
+
 async def _init_default_parameters(db: AsyncSession, cycle_id: int):
     """初始化默认的项目类型系数和员工指标系数"""
     for ptype, coeff in DEFAULT_PROJECT_TYPE_COEFFICIENTS.items():
@@ -137,7 +194,6 @@ async def _inherit_from_previous(db: AsyncSession, prev_cycle_id: int, new_cycle
             password_hash=emp.password_hash,
             role=emp.role,
             assess_type=emp.assess_type,
-            assess_type_secondary=emp.assess_type_secondary,
             is_active=emp.is_active,
         )
         db.add(new_emp)

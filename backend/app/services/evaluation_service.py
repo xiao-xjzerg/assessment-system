@@ -12,6 +12,7 @@ from app.config import (
     EVAL_DIMENSIONS, ROLE_LEADER,
 )
 from app.models.employee import Employee
+from app.models.project import Project
 from app.models.participation import Participation
 from app.models.evaluation import EvalRelation, EvalScore, EvalSummary, WorkGoalScore
 
@@ -23,9 +24,22 @@ from app.models.evaluation import EvalRelation, EvalScore, EvalSummary, WorkGoal
 async def generate_eval_relations(db: AsyncSession, cycle_id: int) -> dict:
     """
     自动生成互评关系。
-    返回 {"created": int, "skipped_no_leader": [...]} 统计信息。
+
+    规则（2026-04-21 调整）：
+      - 业务/产研：4 同事（优先级：同项目项目经理 > 同项目其他成员 > 同组 > 同部门不同组）
+                  + 上级领导（同组/中心的基层管理人员，多人） + 部门领导（同部门，多人）
+      - 基层管理：部门员工（同组/中心全员，排除其他基层管理） + 全系统其他基层管理互评（全选）
+                  + 部门领导（同部门，多人）
+      - 公共人员：部门员工 6 人（同组 3 + 同部门不同组 3，不足互补；无组时全部同部门补）
+                  + 部门领导（同部门，多人）
+
+    "上级领导 / 部门领导 / 基层管理互评" 多人时各自独立作为评价人记录，
+    在 calculate_eval_summaries 中按类型求平均。
+
+    返回 {"created": int, "skipped_no_superior": [...], "skipped_no_dept_leader": [...]}。
     """
-    # 清除旧数据
+    # 清除旧数据：评分记录先删（避免外键残留），再删互评关系
+    await db.execute(delete(EvalScore).where(EvalScore.cycle_id == cycle_id))
     await db.execute(delete(EvalRelation).where(EvalRelation.cycle_id == cycle_id))
     await db.flush()
 
@@ -38,243 +52,219 @@ async def generate_eval_relations(db: AsyncSession, cycle_id: int) -> dict:
     )
     employees = result.scalars().all()
 
-    # 按部门、组、考核类型建索引
+    # 索引
     emp_map = {e.id: e for e in employees}
-    dept_group_map: dict[str, dict[str, list]] = {}  # dept -> group -> [emp]
-    dept_employees: dict[str, list] = {}  # dept -> [emp]
-    dept_leaders: dict[str, list] = {}  # dept -> [leader_emp]
-    managers_by_dept: dict[str, list] = {}  # dept -> [manager_emp]
+    group_map: dict[tuple[str, str], list] = {}      # (dept, group_key) -> [emp]
+    dept_employees: dict[str, list] = {}             # dept -> [emp]
+    dept_leaders: dict[str, list] = {}               # dept -> [role=领导 emp]
+    group_managers: dict[tuple[str, str], list] = {} # (dept, group_key) -> [基层管理 emp]
+    all_managers: list = []                          # 全系统基层管理
 
     for e in employees:
+        gk = e.group_name or ""
+        group_map.setdefault((e.department, gk), []).append(e)
         dept_employees.setdefault(e.department, []).append(e)
-        dept_group_map.setdefault(e.department, {}).setdefault(e.group_name or "", []).append(e)
         if e.role == ROLE_LEADER:
             dept_leaders.setdefault(e.department, []).append(e)
         if e.assess_type == ASSESS_TYPE_MANAGER:
-            managers_by_dept.setdefault(e.department, []).append(e)
+            group_managers.setdefault((e.department, gk), []).append(e)
+            all_managers.append(e)
 
-    # 加载项目参与关系（用于同事匹配优先级1）
+    # 项目：pm_id 用于"同项目项目经理"优先级
+    proj_result = await db.execute(
+        select(Project).where(Project.cycle_id == cycle_id)
+    )
+    projects = proj_result.scalars().all()
+    project_pms: dict[int, int] = {p.id: p.pm_id for p in projects if p.pm_id}
+
+    # 参与度：emp_id -> projects / project_id -> members
     part_result = await db.execute(
         select(Participation).where(Participation.cycle_id == cycle_id)
     )
     participations = part_result.scalars().all()
-    # emp_id -> set of project_ids
     emp_projects: dict[int, set] = {}
-    # project_id -> set of emp_ids
     project_members: dict[int, set] = {}
     for p in participations:
         emp_projects.setdefault(p.employee_id, set()).add(p.project_id)
         project_members.setdefault(p.project_id, set()).add(p.employee_id)
 
+    # ---- 跨类型去重用的 ID 集合 ----
+    # 所有 role=领导 的 ID（部门领导池来源，不应再进同事池）
+    all_leader_ids: set = {
+        l.id for lst in dept_leaders.values() for l in lst
+    }
+    # 所有基层管理人员 ID（上级领导/基层管理互评池来源，不应进业务/产研的同事池）
+    all_manager_ids: set = {m.id for m in all_managers}
+    # 业务/产研的同事池排除：领导 + 基层管理
+    business_peer_exclude = all_leader_ids | all_manager_ids
+    # 公共人员的同事池排除：领导
+    public_peer_exclude = all_leader_ids
+
     created = 0
-    skipped_no_leader = []
+    skipped_no_superior: list = []
+    skipped_no_dept_leader: list = []
+
+    def _add_relation(evaluatee, evaluator, evaluator_type, order=0):
+        nonlocal created
+        db.add(EvalRelation(
+            cycle_id=cycle_id,
+            evaluatee_id=evaluatee.id,
+            evaluatee_name=evaluatee.name,
+            evaluatee_assess_type=evaluatee.assess_type,
+            evaluator_id=evaluator.id,
+            evaluator_name=evaluator.name,
+            evaluator_type=evaluator_type,
+            evaluator_order=order,
+        ))
+        created += 1
 
     for emp in employees:
         assess_type = emp.assess_type
+        gk = emp.group_name or ""
+
+        # ---- 同部门领导（三类考核共用） ----
+        dleaders = [l for l in dept_leaders.get(emp.department, []) if l.id != emp.id]
 
         if assess_type in (ASSESS_TYPE_BUSINESS, ASSESS_TYPE_RD):
-            # ---- 业务人员 / 产品研发人员 ----
-            # 4个同事评价人
-            colleagues = _pick_colleagues(
-                emp, employees, emp_map, emp_projects, project_members,
-                dept_group_map, dept_employees, count=4,
+            # 4 名同事（同事池排除所有领导 + 基层管理人员，避免与"部门领导"/"上级领导"重复）
+            colleagues = _pick_business_colleagues(
+                emp, emp_map, emp_projects, project_members, project_pms,
+                group_map, dept_employees,
+                excluded_ids=business_peer_exclude, count=4,
             )
             for order, col in enumerate(colleagues, 1):
-                db.add(EvalRelation(
-                    cycle_id=cycle_id,
-                    evaluatee_id=emp.id,
-                    evaluatee_name=emp.name,
-                    evaluatee_assess_type=assess_type,
-                    evaluator_id=col.id,
-                    evaluator_name=col.name,
-                    evaluator_type="同事",
-                    evaluator_order=order,
-                ))
-                created += 1
+                _add_relation(emp, col, "同事", order)
 
-            # 上级领导（部门内领导角色）
-            leaders = dept_leaders.get(emp.department, [])
-            leaders = [l for l in leaders if l.id != emp.id]
-            if leaders:
-                db.add(EvalRelation(
-                    cycle_id=cycle_id,
-                    evaluatee_id=emp.id,
-                    evaluatee_name=emp.name,
-                    evaluatee_assess_type=assess_type,
-                    evaluator_id=leaders[0].id,
-                    evaluator_name=leaders[0].name,
-                    evaluator_type="上级领导",
-                    evaluator_order=0,
-                ))
-                created += 1
+            # 上级领导：同组/中心基层管理；fallback 部门内其他组基层管理
+            superiors = [m for m in group_managers.get((emp.department, gk), []) if m.id != emp.id]
+            if not superiors:
+                superiors = [
+                    m for m in all_managers
+                    if m.department == emp.department and m.id != emp.id
+                ]
+            if superiors:
+                for s in superiors:
+                    _add_relation(emp, s, "上级领导", 0)
             else:
-                skipped_no_leader.append(emp.name)
+                skipped_no_superior.append(emp.name)
 
-            # 部门领导（取部门内第一个领导，如与上级领导相同则取第二个）
-            dept_leader = _pick_dept_leader(emp, leaders)
-            if dept_leader:
-                db.add(EvalRelation(
-                    cycle_id=cycle_id,
-                    evaluatee_id=emp.id,
-                    evaluatee_name=emp.name,
-                    evaluatee_assess_type=assess_type,
-                    evaluator_id=dept_leader.id,
-                    evaluator_name=dept_leader.name,
-                    evaluator_type="部门领导",
-                    evaluator_order=0,
-                ))
-                created += 1
+            # 部门领导：同部门 role=领导 全选
+            if dleaders:
+                for l in dleaders:
+                    _add_relation(emp, l, "部门领导", 0)
+            else:
+                skipped_no_dept_leader.append(emp.name)
 
         elif assess_type == ASSESS_TYPE_MANAGER:
-            # ---- 基层管理人员 ----
-            # 部门员工评分：从本部门下属中选4人
-            subordinates = [
-                e for e in dept_employees.get(emp.department, [])
-                if e.id != emp.id and e.assess_type != ASSESS_TYPE_MANAGER
-            ]
-            chosen_subs = _sample_up_to(subordinates, 4)
-            for order, sub in enumerate(chosen_subs, 1):
-                db.add(EvalRelation(
-                    cycle_id=cycle_id,
-                    evaluatee_id=emp.id,
-                    evaluatee_name=emp.name,
-                    evaluatee_assess_type=assess_type,
-                    evaluator_id=sub.id,
-                    evaluator_name=sub.name,
-                    evaluator_type="部门员工",
-                    evaluator_order=order,
-                ))
-                created += 1
-
-            # 基层管理互评：其他基层管理人员
-            other_managers = [
-                m for m in managers_by_dept.get(emp.department, [])
+            # 部门员工：本人所在组/中心全员（排除本人、其他基层管理人员、部门领导）
+            group_subs = [
+                m for m in group_map.get((emp.department, gk), [])
                 if m.id != emp.id
+                and m.assess_type != ASSESS_TYPE_MANAGER
+                and m.id not in all_leader_ids
             ]
-            for m in other_managers:
-                db.add(EvalRelation(
-                    cycle_id=cycle_id,
-                    evaluatee_id=emp.id,
-                    evaluatee_name=emp.name,
-                    evaluatee_assess_type=assess_type,
-                    evaluator_id=m.id,
-                    evaluator_name=m.name,
-                    evaluator_type="基层管理互评",
-                    evaluator_order=0,
-                ))
-                created += 1
+            for order, sub in enumerate(group_subs, 1):
+                _add_relation(emp, sub, "部门员工", order)
+
+            # 基层管理互评：全系统其他基层管理人员（全选）
+            for m in all_managers:
+                if m.id == emp.id:
+                    continue
+                _add_relation(emp, m, "基层管理互评", 0)
 
             # 部门领导
-            leaders = dept_leaders.get(emp.department, [])
-            leaders = [l for l in leaders if l.id != emp.id]
-            if leaders:
-                db.add(EvalRelation(
-                    cycle_id=cycle_id,
-                    evaluatee_id=emp.id,
-                    evaluatee_name=emp.name,
-                    evaluatee_assess_type=assess_type,
-                    evaluator_id=leaders[0].id,
-                    evaluator_name=leaders[0].name,
-                    evaluator_type="部门领导",
-                    evaluator_order=0,
-                ))
-                created += 1
+            if dleaders:
+                for l in dleaders:
+                    _add_relation(emp, l, "部门领导", 0)
             else:
-                skipped_no_leader.append(emp.name)
+                skipped_no_dept_leader.append(emp.name)
 
         elif assess_type == ASSESS_TYPE_PUBLIC:
-            # ---- 公共人员 ----
-            # 部门员工评分：从本部门选4人
-            dept_emps = [
-                e for e in dept_employees.get(emp.department, [])
-                if e.id != emp.id
-            ]
-            chosen_emps = _sample_up_to(dept_emps, 4)
-            for order, sub in enumerate(chosen_emps, 1):
-                db.add(EvalRelation(
-                    cycle_id=cycle_id,
-                    evaluatee_id=emp.id,
-                    evaluatee_name=emp.name,
-                    evaluatee_assess_type=assess_type,
-                    evaluator_id=sub.id,
-                    evaluator_name=sub.name,
-                    evaluator_type="部门员工",
-                    evaluator_order=order,
-                ))
-                created += 1
+            # 部门员工：6 人，同组 3 + 同部门不同组 3，不足互补（排除部门领导）
+            peers = _pick_public_peers(
+                emp, group_map, dept_employees,
+                excluded_ids=public_peer_exclude, target=6, half=3,
+            )
+            for order, sub in enumerate(peers, 1):
+                _add_relation(emp, sub, "部门员工", order)
 
             # 部门领导
-            leaders = dept_leaders.get(emp.department, [])
-            leaders = [l for l in leaders if l.id != emp.id]
-            if leaders:
-                db.add(EvalRelation(
-                    cycle_id=cycle_id,
-                    evaluatee_id=emp.id,
-                    evaluatee_name=emp.name,
-                    evaluatee_assess_type=assess_type,
-                    evaluator_id=leaders[0].id,
-                    evaluator_name=leaders[0].name,
-                    evaluator_type="部门领导",
-                    evaluator_order=0,
-                ))
-                created += 1
+            if dleaders:
+                for l in dleaders:
+                    _add_relation(emp, l, "部门领导", 0)
             else:
-                skipped_no_leader.append(emp.name)
+                skipped_no_dept_leader.append(emp.name)
+
+        # 领导 / 管理员等无考核类型的员工不参与互评生成
 
     await db.flush()
-    return {"created": created, "skipped_no_leader": skipped_no_leader}
+    return {
+        "created": created,
+        "skipped_no_superior": skipped_no_superior,
+        "skipped_no_dept_leader": skipped_no_dept_leader,
+    }
 
 
-def _pick_colleagues(
-    emp, all_employees, emp_map, emp_projects, project_members,
-    dept_group_map, dept_employees, count: int = 4,
+def _pick_business_colleagues(
+    emp, emp_map, emp_projects, project_members, project_pms,
+    group_map, dept_employees, excluded_ids: set | None = None, count: int = 4,
 ) -> list:
     """
     为业务人员/产品研发人员挑选同事评价人（最多count人）。
-    优先级：1.同部门同项目 2.同组 3.同部门不同组
+    优先级：
+      1. 同项目项目经理（我所参与项目的 PM，不含自己）
+      2. 同项目其他成员（跨部门允许）
+      3. 同部门 + 同组
+      4. 同部门 + 不同组
+    excluded_ids: 不应进入同事池的员工 ID（通常是全部 role=领导 和 assess_type=基层管理人员，
+                  他们分别走"部门领导" / "上级领导"通道，避免同一人同时作为同事评价出现）。
     """
     chosen_ids: set = set()
     chosen: list = []
+    excluded = excluded_ids or set()
 
     def _add(candidate):
-        if candidate.id not in chosen_ids and candidate.id != emp.id:
+        if not candidate:
+            return
+        if (candidate.id != emp.id
+                and candidate.id not in chosen_ids
+                and candidate.id not in excluded):
             chosen_ids.add(candidate.id)
             chosen.append(candidate)
 
-    # 优先级1：同部门、同项目参与者
-    my_projects = emp_projects.get(emp.id, set())
-    project_colleagues = []
+    my_projects = list(emp_projects.get(emp.id, set()))
+
+    # 优先级1：同项目 PM（本人若为 PM 自然被过滤）
+    pm_candidates = []
     for pid in my_projects:
-        for mid in project_members.get(pid, set()):
-            c = emp_map.get(mid)
-            if c and c.id != emp.id and c.department == emp.department and c.id not in chosen_ids:
-                project_colleagues.append(c)
-    # 从不同项目各取一人
-    seen_projects = set()
-    for pid in my_projects:
-        if len(chosen) >= count:
-            break
-        members = [
-            emp_map[mid] for mid in project_members.get(pid, set())
-            if mid in emp_map and mid != emp.id
-            and emp_map[mid].department == emp.department
-            and mid not in chosen_ids
-        ]
-        if members:
-            _add(random.choice(members))
-            seen_projects.add(pid)
-    # 如果不够，从剩余项目同事中补
-    remaining = [c for c in project_colleagues if c.id not in chosen_ids]
-    random.shuffle(remaining)
-    for c in remaining:
+        pm_id = project_pms.get(pid)
+        pm = emp_map.get(pm_id) if pm_id else None
+        if pm:
+            pm_candidates.append(pm)
+    random.shuffle(pm_candidates)
+    for c in pm_candidates:
         if len(chosen) >= count:
             break
         _add(c)
 
-    # 优先级2：同组员工
+    # 优先级2：同项目其他成员（跨部门允许）
     if len(chosen) < count:
-        group = emp.group_name or ""
-        group_members = dept_group_map.get(emp.department, {}).get(group, [])
+        project_colleagues: list = []
+        for pid in my_projects:
+            for mid in project_members.get(pid, set()):
+                c = emp_map.get(mid)
+                if c and c.id != emp.id and c.id not in chosen_ids:
+                    project_colleagues.append(c)
+        random.shuffle(project_colleagues)
+        for c in project_colleagues:
+            if len(chosen) >= count:
+                break
+            _add(c)
+
+    # 优先级3：同部门同组
+    if len(chosen) < count:
+        gk = emp.group_name or ""
+        group_members = group_map.get((emp.department, gk), [])
         candidates = [m for m in group_members if m.id != emp.id and m.id not in chosen_ids]
         random.shuffle(candidates)
         for c in candidates:
@@ -282,12 +272,14 @@ def _pick_colleagues(
                 break
             _add(c)
 
-    # 优先级3：同部门不同组
+    # 优先级4：同部门不同组
     if len(chosen) < count:
-        all_dept = dept_employees.get(emp.department, [])
+        gk = emp.group_name or ""
+        dept_pool = dept_employees.get(emp.department, [])
         candidates = [
-            m for m in all_dept
+            m for m in dept_pool
             if m.id != emp.id and m.id not in chosen_ids
+            and (m.group_name or "") != gk
         ]
         random.shuffle(candidates)
         for c in candidates:
@@ -298,19 +290,62 @@ def _pick_colleagues(
     return chosen[:count]
 
 
-def _pick_dept_leader(emp, leaders: list):
-    """从领导列表中选一个作为部门领导评价人"""
-    for l in leaders:
-        if l.id != emp.id:
-            return l
-    return None
+def _pick_public_peers(
+    emp, group_map, dept_employees,
+    excluded_ids: set | None = None, target: int = 6, half: int = 3,
+) -> list:
+    """
+    为公共人员挑选部门员工评价人。
+    规则：同组 half 人 + 同部门不同组 half 人，任一侧不足时由另一侧补足；
+         若员工没有组/中心，则全部从同部门员工中随机抽取。
+    excluded_ids: 不应进入同事池的员工 ID（通常是全部 role=领导，他们走"部门领导"通道）。
+    """
+    gk = emp.group_name or ""
+    excluded = excluded_ids or set()
 
+    def _not_excluded(m):
+        return m.id != emp.id and m.id not in excluded
 
-def _sample_up_to(pool: list, n: int) -> list:
-    """从pool中随机抽取最多n个"""
-    if len(pool) <= n:
-        return list(pool)
-    return random.sample(pool, n)
+    if not gk:
+        # 无组/中心：直接在同部门内随机抽
+        pool = [m for m in dept_employees.get(emp.department, []) if _not_excluded(m)]
+        random.shuffle(pool)
+        return pool[:target]
+
+    # 同组候选（排除本人、部门领导）
+    same_group = [m for m in group_map.get((emp.department, gk), []) if _not_excluded(m)]
+    # 同部门不同组候选
+    diff_group = [
+        m for m in dept_employees.get(emp.department, [])
+        if _not_excluded(m) and (m.group_name or "") != gk
+    ]
+    random.shuffle(same_group)
+    random.shuffle(diff_group)
+
+    sg_pick = same_group[:half]
+    dg_pick = diff_group[:half]
+
+    # 任一侧不足，从另一侧补到 target
+    if len(sg_pick) < half:
+        need = half - len(sg_pick)
+        extra = diff_group[len(dg_pick):len(dg_pick) + need]
+        dg_pick = dg_pick + extra
+    if len(dg_pick) < half:
+        need = half - len(dg_pick)
+        extra = same_group[len(sg_pick):len(sg_pick) + need]
+        sg_pick = sg_pick + extra
+
+    result = sg_pick + dg_pick
+    # 整体不足 target：同部门剩余再补
+    if len(result) < target:
+        chosen_ids = {m.id for m in result}
+        fillers = [
+            m for m in dept_employees.get(emp.department, [])
+            if _not_excluded(m) and m.id not in chosen_ids
+        ]
+        random.shuffle(fillers)
+        result.extend(fillers[:target - len(result)])
+    return result[:target]
 
 
 # ============================================================
@@ -501,44 +536,54 @@ async def admin_reset_eval_score(
 async def calculate_eval_summaries(db: AsyncSession, cycle_id: int) -> int:
     """
     汇总计算所有人的360评价得分。
+
     加权规则：
-      业务人员: 同事均分×40% + 上级领导×30% + 部门领导×30%
-      产品研发人员: 同事均分×30% + 上级领导×40% + 部门领导×30%
-      基层管理人员: 部门员工均分×30% + 基层管理互评均分×30% + 部门领导×40%
-      公共人员: 部门员工均分×50% + 部门领导×50%
+      业务人员:     同事均分×40% + 上级领导均分×30% + 部门领导均分×30%
+      产品研发人员: 同事均分×30% + 上级领导均分×40% + 部门领导均分×30%
+      基层管理人员: 部门员工均分×30% + 基层管理互评均分×30% + 部门领导均分×40%
+      公共人员:     部门员工均分×50% + 部门领导均分×50%
     最终得分 = 加权总分 / 100 × 30
+
+    说明：所有"均分"均对互评关系中相应 evaluator_type 的评价人取平均，
+    包括未完成评分者按 0 参与平均（与旧口径一致）。
     """
     # 清除旧汇总
     await db.execute(delete(EvalSummary).where(EvalSummary.cycle_id == cycle_id))
 
-    # 获取所有被评人（通过互评关系去重）
+    # 获取所有互评关系
     rel_result = await db.execute(
         select(EvalRelation).where(EvalRelation.cycle_id == cycle_id)
     )
     all_relations = rel_result.scalars().all()
 
-    # 按被评人分组
     evaluatee_relations: dict[int, list] = {}
     for r in all_relations:
         evaluatee_relations.setdefault(r.evaluatee_id, []).append(r)
 
-    # 获取评分数据
+    # 评分记录：relation_id -> 该评价人对被评人的总分
     score_result = await db.execute(
         select(EvalScore).where(EvalScore.cycle_id == cycle_id)
     )
     all_scores = score_result.scalars().all()
-    # relation_id -> total_score（该评价人对被评人的总分）
     relation_total: dict[int, Decimal] = {}
     for s in all_scores:
         relation_total[s.relation_id] = relation_total.get(
             s.relation_id, Decimal("0")
         ) + (s.score or Decimal("0"))
 
-    # 获取员工信息
+    # 员工信息
     emp_result = await db.execute(
         select(Employee).where(Employee.cycle_id == cycle_id)
     )
     emp_map = {e.id: e for e in emp_result.scalars().all()}
+
+    def _avg(lst):
+        if not lst:
+            return Decimal("0")
+        return sum(lst) / len(lst)
+
+    # 业务/产研 的同事标签为"同事"，基层管理/公共 的同事标签为"部门员工"
+    peer_types = {"同事", "部门员工"}
 
     count = 0
     for evaluatee_id, relations in evaluatee_relations.items():
@@ -550,72 +595,46 @@ async def calculate_eval_summaries(db: AsyncSession, cycle_id: int) -> int:
 
         # 按评价人类型分组
         type_scores: dict[str, list] = {}
-        colleague_scores_by_order: dict[int, Decimal] = {}
-
+        peer_scores: list = []
         for r in relations:
             total = relation_total.get(r.id, Decimal("0"))
             type_scores.setdefault(r.evaluator_type, []).append(total)
-            if r.evaluator_type == "同事" and r.evaluator_order > 0:
-                colleague_scores_by_order[r.evaluator_order] = total
-            elif r.evaluator_type == "部门员工" and r.evaluator_order > 0:
-                colleague_scores_by_order[r.evaluator_order] = total
+            if r.evaluator_type in peer_types:
+                peer_scores.append(total)
 
-        # 计算各评价人类型的分数
-        def _avg(lst):
-            if not lst:
-                return Decimal("0")
-            return sum(lst) / len(lst)
+        colleague_avg = _avg(peer_scores)
+        colleague_count = len(peer_scores)
+        superior_score = _avg(type_scores.get("上级领导", []))
+        dept_leader_score = _avg(type_scores.get("部门领导", []))
+        manager_mutual_score = _avg(type_scores.get("基层管理互评", []))
 
-        # 填充 colleague1~4 scores
-        c1 = colleague_scores_by_order.get(1, Decimal("0"))
-        c2 = colleague_scores_by_order.get(2, Decimal("0"))
-        c3 = colleague_scores_by_order.get(3, Decimal("0"))
-        c4 = colleague_scores_by_order.get(4, Decimal("0"))
-
-        superior_score = Decimal("0")
-        dept_leader_score = Decimal("0")
-
-        if "上级领导" in type_scores:
-            superior_score = _avg(type_scores["上级领导"])
-        if "部门领导" in type_scores:
-            dept_leader_score = _avg(type_scores["部门领导"])
-
-        # 计算加权总分
         if assess_type == ASSESS_TYPE_BUSINESS:
-            colleague_avg = _avg(type_scores.get("同事", []))
             weighted = (
                 colleague_avg * Decimal("0.4")
                 + superior_score * Decimal("0.3")
                 + dept_leader_score * Decimal("0.3")
             )
         elif assess_type == ASSESS_TYPE_RD:
-            colleague_avg = _avg(type_scores.get("同事", []))
             weighted = (
                 colleague_avg * Decimal("0.3")
                 + superior_score * Decimal("0.4")
                 + dept_leader_score * Decimal("0.3")
             )
         elif assess_type == ASSESS_TYPE_MANAGER:
-            emp_avg = _avg(type_scores.get("部门员工", []))
-            mgr_avg = _avg(type_scores.get("基层管理互评", []))
             weighted = (
-                emp_avg * Decimal("0.3")
-                + mgr_avg * Decimal("0.3")
+                colleague_avg * Decimal("0.3")
+                + manager_mutual_score * Decimal("0.3")
                 + dept_leader_score * Decimal("0.4")
             )
-            # 对基层管理人员，colleague1~4存部门员工评分
         elif assess_type == ASSESS_TYPE_PUBLIC:
-            emp_avg = _avg(type_scores.get("部门员工", []))
             weighted = (
-                emp_avg * Decimal("0.5")
+                colleague_avg * Decimal("0.5")
                 + dept_leader_score * Decimal("0.5")
             )
         else:
             weighted = Decimal("0")
 
-        # 四舍五入到2位
         weighted = weighted.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        # 最终得分 = 加权总分 / 100 × 30
         final = (weighted / Decimal("100") * Decimal("30")).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
@@ -627,12 +646,11 @@ async def calculate_eval_summaries(db: AsyncSession, cycle_id: int) -> int:
             department=emp.department,
             position=emp.position,
             assess_type=assess_type,
-            colleague1_score=c1,
-            colleague2_score=c2,
-            colleague3_score=c3,
-            colleague4_score=c4,
-            superior_score=superior_score,
-            dept_leader_score=dept_leader_score,
+            colleague_avg_score=colleague_avg.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            colleague_count=colleague_count,
+            superior_score=superior_score.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            dept_leader_score=dept_leader_score.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            manager_mutual_score=manager_mutual_score.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
             weighted_total=weighted,
             final_score=final,
         )
@@ -671,24 +689,31 @@ async def get_public_employees_for_leader(
     db: AsyncSession,
     cycle_id: int,
     leader_id: int,
+    all_departments: bool = False,
 ) -> list:
-    """获取领导需要打分的公共人员列表（同部门公共人员）"""
-    leader_result = await db.execute(
-        select(Employee).where(Employee.id == leader_id)
-    )
-    leader = leader_result.scalar_one_or_none()
-    if leader is None:
-        raise ValueError("领导不存在")
+    """获取打分对象列表。
 
-    result = await db.execute(
-        select(Employee).where(
-            Employee.cycle_id == cycle_id,
-            Employee.department == leader.department,
-            Employee.assess_type == ASSESS_TYPE_PUBLIC,
-            Employee.is_active == True,
-            Employee.id != leader_id,
-        ).order_by(Employee.name)
+    - 领导：同部门公共人员
+    - 管理员（all_departments=True）：所有部门公共人员
+    """
+    query = select(Employee).where(
+        Employee.cycle_id == cycle_id,
+        Employee.assess_type == ASSESS_TYPE_PUBLIC,
+        Employee.is_active == True,
+        Employee.id != leader_id,
     )
+
+    if not all_departments:
+        leader_result = await db.execute(
+            select(Employee).where(Employee.id == leader_id)
+        )
+        leader = leader_result.scalar_one_or_none()
+        if leader is None:
+            raise ValueError("领导不存在")
+        query = query.where(Employee.department == leader.department)
+
+    query = query.order_by(Employee.department, Employee.name)
+    result = await db.execute(query)
     return result.scalars().all()
 
 

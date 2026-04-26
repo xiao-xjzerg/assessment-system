@@ -36,3 +36,6 @@ npm-debug.log*
 
 # Build
 *.log
+
+# Excel 模板与演示数据（不跟踪，按需本地生成）
+templates/

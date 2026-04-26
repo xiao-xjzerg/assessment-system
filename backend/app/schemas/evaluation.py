@@ -56,12 +56,11 @@ class EvalSummaryOut(BaseModel):
     department: str
     position: Optional[str] = None
     assess_type: str
-    colleague1_score: Decimal
-    colleague2_score: Decimal
-    colleague3_score: Decimal
-    colleague4_score: Decimal
+    colleague_avg_score: Decimal
+    colleague_count: int
     superior_score: Decimal
     dept_leader_score: Decimal
+    manager_mutual_score: Decimal
     weighted_total: Decimal
     final_score: Decimal
 
@@ -79,6 +78,7 @@ class WorkGoalScoreOut(BaseModel):
     cycle_id: int
     employee_id: int
     leader_id: int
+    leader_name: Optional[str] = None
     score: Decimal
     comment: Optional[str] = None
 

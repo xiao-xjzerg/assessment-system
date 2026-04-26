@@ -54,6 +54,9 @@ interface AdminEditFormValues extends CreateFormValues {
 export default function PublicScorePage() {
   const { message, modal } = AntdApp.useApp();
   const isAdmin = useUserStore((s) => s.isAdmin());
+  const isLeader = useUserStore((s) => s.isLeader());
+  // 领导与管理员等权：可查看/编辑/删除他人公共积分，可直接修改工作量系数与积分
+  const isPrivileged = isAdmin || isLeader;
 
   // 数据
   const [data, setData] = useState<PublicScore[]>([]);
@@ -75,7 +78,7 @@ export default function PublicScorePage() {
     setLoading(true);
     try {
       const params: Record<string, string | undefined> = {};
-      if (isAdmin) {
+      if (isPrivileged) {
         if (filterName) params.employee_name = filterName;
         if (filterType) params.activity_type = filterType;
         if (filterStatus) params.status = filterStatus;
@@ -87,37 +90,40 @@ export default function PublicScorePage() {
     } finally {
       setLoading(false);
     }
-  }, [message, isAdmin, filterName, filterType, filterStatus]);
+  }, [message, isPrivileged, filterName, filterType, filterStatus]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  // 打开新增
+  // 预填策略：Modal 使用 destroyOnClose，Form 每次打开时重新挂载并读取 initialValues。
+  // openCreate/openEdit 只负责切状态，不再手动调 form.setFieldsValue / resetFields。
   const openCreate = () => {
     setEditingRecord(null);
-    form.resetFields();
     setModalOpen(true);
   };
 
-  // 打开编辑
   const openEdit = (record: PublicScore) => {
     setEditingRecord(record);
-    form.setFieldsValue({
-      activity_name: record.activity_name,
-      activity_type: record.activity_type,
-      man_months: Number(record.man_months),
-      complexity: record.complexity,
-      remark: record.remark || '',
-      ...(isAdmin
-        ? {
-            workload_coeff: Number(record.workload_coeff),
-            score: Number(record.score),
-          }
-        : {}),
-    });
     setModalOpen(true);
   };
+
+  const initialFormValues = useMemo<Partial<AdminEditFormValues> | undefined>(() => {
+    if (!editingRecord) return undefined;
+    return {
+      activity_name: editingRecord.activity_name,
+      activity_type: editingRecord.activity_type,
+      man_months: Number(editingRecord.man_months),
+      complexity: editingRecord.complexity,
+      remark: editingRecord.remark || '',
+      ...(isPrivileged
+        ? {
+            workload_coeff: Number(editingRecord.workload_coeff),
+            score: Number(editingRecord.score),
+          }
+        : {}),
+    };
+  }, [editingRecord, isPrivileged]);
 
   // 提交表单
   const handleSubmit = async () => {
@@ -134,7 +140,7 @@ export default function PublicScorePage() {
           complexity: values.complexity,
           remark: values.remark || null,
         };
-        if (isAdmin) {
+        if (isPrivileged) {
           if (values.workload_coeff !== undefined) updateData.workload_coeff = values.workload_coeff;
           if (values.score !== undefined) updateData.score = values.score;
         }
@@ -183,7 +189,7 @@ export default function PublicScorePage() {
   // 列定义
   const columns: ColumnsType<PublicScore> = useMemo(() => {
     const cols: ColumnsType<PublicScore> = [];
-    if (isAdmin) {
+    if (isPrivileged) {
       cols.push({
         title: '员工姓名',
         dataIndex: 'employee_name',
@@ -269,7 +275,7 @@ export default function PublicScorePage() {
       },
     );
     return cols;
-  }, [isAdmin]);
+  }, [isPrivileged]);
 
   return (
     <div style={{ padding: 24 }}>
@@ -286,8 +292,8 @@ export default function PublicScorePage() {
           </Button>
         }
       >
-        {/* 管理员筛选区 */}
-        {isAdmin && (
+        {/* 管理员 / 领导筛选区 */}
+        {isPrivileged && (
           <Space wrap style={{ marginBottom: 16 }}>
             <Input
               placeholder="员工姓名"
@@ -328,7 +334,7 @@ export default function PublicScorePage() {
           columns={columns}
           dataSource={data}
           loading={loading}
-          scroll={{ x: isAdmin ? 1300 : 1200 }}
+          scroll={{ x: isPrivileged ? 1300 : 1200 }}
           pagination={{
             pageSize: 20,
             showSizeChanger: true,
@@ -352,6 +358,7 @@ export default function PublicScorePage() {
           form={form}
           layout="vertical"
           preserve={false}
+          initialValues={initialFormValues}
         >
           <Form.Item
             name="activity_name"
@@ -395,8 +402,8 @@ export default function PublicScorePage() {
             <Input.TextArea rows={2} maxLength={500} placeholder="备注（可选）" />
           </Form.Item>
 
-          {/* 管理员额外字段 */}
-          {isAdmin && editingRecord && (
+          {/* 管理员 / 领导额外字段 */}
+          {isPrivileged && editingRecord && (
             <>
               <Form.Item name="workload_coeff" label="工作量系数（管理员修改）">
                 <InputNumber min={0} step={0.01} precision={4} style={{ width: '100%' }} />

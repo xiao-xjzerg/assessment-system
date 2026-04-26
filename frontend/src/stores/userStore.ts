@@ -12,8 +12,10 @@ export interface UserProfile {
   user_id: number;
   name: string;
   role: string;
-  assess_type: string;
+  assess_type: string | null;
   department: string;
+  /** 是否在当前周期派生为项目经理（由项目一览表 pm_id 动态判定） */
+  is_pm: boolean;
 }
 
 interface UserState {
@@ -53,6 +55,7 @@ export const useUserStore = create<UserState>()(
             role: payload.role,
             assess_type: payload.assess_type,
             department: payload.department,
+            is_pm: !!payload.is_pm,
           },
         });
       },
@@ -69,12 +72,16 @@ export const useUserStore = create<UserState>()(
       },
 
       isAdmin: () => get().user?.role === ROLE.ADMIN,
-      isPm: () => get().user?.role === ROLE.PM,
+      // 项目经理权限由派生字段 is_pm 决定，不依赖员工表 role
+      isPm: () => !!get().user?.is_pm,
       isLeader: () => get().user?.role === ROLE.LEADER,
       isEmployee: () => get().user?.role === ROLE.EMPLOYEE,
       hasRole: (...roles) => {
-        const role = get().user?.role;
-        return role ? roles.includes(role as Role) : false;
+        const u = get().user;
+        if (!u) return false;
+        if (roles.includes(u.role as Role)) return true;
+        // 派生 PM：若查询角色包含"项目经理"且用户 is_pm 为真，也视为匹配
+        return roles.includes(ROLE.PM) && !!u.is_pm;
       },
     }),
     {

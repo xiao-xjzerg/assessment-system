@@ -16,6 +16,7 @@ from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectOut
 from app.schemas.common import ResponseModel, PaginatedData
 from app.services.project_service import (
     get_projects, import_projects, reimport_projects, calc_project_coefficients,
+    normalize_signing_probability,
 )
 from app.services.excel_service import parse_project_excel, generate_project_template
 
@@ -31,6 +32,13 @@ async def _get_active_cycle(db: AsyncSession) -> Cycle:
     if cycle is None:
         raise HTTPException(status_code=400, detail="没有活跃的考核周期")
     return cycle
+
+
+def _project_out(proj: Project) -> ProjectOut:
+    """序列化项目，附带 pm_missing 标记（pm_name 有值但 pm_id 为空）"""
+    out = ProjectOut.model_validate(proj)
+    out.pm_missing = bool(proj.pm_name) and proj.pm_id is None
+    return out
 
 
 # ---- 模板下载 ----
@@ -71,7 +79,10 @@ async def import_excel(
 
     if result["errors"]:
         return ResponseModel(code=400, message="导入失败", data=result)
-    return ResponseModel(message=f"成功导入 {result['success_count']} 个项目", data=result)
+    msg = f"成功导入 {result['success_count']} 个项目"
+    if result.get("warnings"):
+        msg += "；存在警告，请查看详情"
+    return ResponseModel(message=msg, data=result)
 
 
 # ---- 列表查询 ----
@@ -92,7 +103,7 @@ async def list_projects(
         db, cycle.id, page, page_size, search, project_type, department, project_status
     )
     data = PaginatedData[ProjectOut](
-        items=[ProjectOut.model_validate(p) for p in items],
+        items=[_project_out(p) for p in items],
         total=total,
         page=page,
         page_size=page_size,
@@ -112,7 +123,7 @@ async def get_project(
     proj = result.scalar_one_or_none()
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    return ResponseModel(data=ProjectOut.model_validate(proj).model_dump())
+    return ResponseModel(data=_project_out(proj).model_dump())
 
 
 # ---- 手动新增 ----
@@ -134,19 +145,18 @@ async def create_project(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="该项目令号已存在")
 
-    # 查找项目经理
+    # 查找项目经理：按姓名唯一匹配；若查不到或同名冲突则 pm_id 留空，由前端标红提示
     pm_id = None
     if body.pm_name:
         pm_result = await db.execute(
-            select(Employee).where(
+            select(Employee.id).where(
                 Employee.cycle_id == cycle.id,
                 Employee.name == body.pm_name,
-                Employee.role == "项目经理",
             )
         )
-        pm = pm_result.scalar_one_or_none()
-        if pm:
-            pm_id = pm.id
+        matched_ids = [r[0] for r in pm_result.all()]
+        if len(matched_ids) == 1:
+            pm_id = matched_ids[0]
 
     proj = Project(
         cycle_id=cycle.id,
@@ -163,16 +173,18 @@ async def create_project(
         project_profit=body.project_profit,
         self_dev_income=body.self_dev_income,
         product_contract_amount=body.product_contract_amount,
+        current_period_profit=body.current_period_profit,
+        current_period_self_dev_income=body.current_period_self_dev_income,
         presale_progress=body.presale_progress,
         delivery_progress=body.delivery_progress,
         pm_id=pm_id,
         pm_name=body.pm_name,
         signing_probability=Decimal("1"),
     )
-    calc_project_coefficients(proj)
+    await calc_project_coefficients(db, proj)
     db.add(proj)
     await db.flush()
-    return ResponseModel(data=ProjectOut.model_validate(proj).model_dump())
+    return ResponseModel(data=_project_out(proj).model_dump())
 
 
 # ---- 编辑 ----
@@ -190,17 +202,36 @@ async def update_project(
         raise HTTPException(status_code=404, detail="项目不存在")
 
     update_data = body.model_dump(exclude_unset=True)
+    # 签约概率兼容：>1 视为百分比自动 /100
+    if "signing_probability" in update_data and update_data["signing_probability"] is not None:
+        update_data["signing_probability"] = normalize_signing_probability(
+            update_data["signing_probability"]
+        )
     for field, value in update_data.items():
         setattr(proj, field, value)
+
+    # pm_name 变化时重新按姓名唯一匹配 pm_id
+    if "pm_name" in update_data:
+        proj.pm_id = None
+        if proj.pm_name:
+            pm_result = await db.execute(
+                select(Employee.id).where(
+                    Employee.cycle_id == proj.cycle_id,
+                    Employee.name == proj.pm_name,
+                )
+            )
+            matched_ids = [r[0] for r in pm_result.all()]
+            if len(matched_ids) == 1:
+                proj.pm_id = matched_ids[0]
 
     # 重新计算系数（如果相关字段有变化）
     recalc_fields = {"project_profit", "project_type", "signing_probability", "contract_amount"}
     if recalc_fields & set(update_data.keys()):
-        calc_project_coefficients(proj)
+        await calc_project_coefficients(db, proj)
 
     db.add(proj)
     await db.flush()
-    return ResponseModel(data=ProjectOut.model_validate(proj).model_dump())
+    return ResponseModel(data=_project_out(proj).model_dump())
 
 
 # ---- 删除 ----

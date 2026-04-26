@@ -13,6 +13,8 @@ export const resultApi = {
       department?: string;
       assess_type?: string;
       employee_name?: string;
+      group_name?: string;
+      position?: string;
     } = {},
   ) => get<FinalResult[]>('/results', { params }),
 
