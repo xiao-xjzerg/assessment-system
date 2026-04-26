@@ -18,7 +18,7 @@ import LoginPage from '@/pages/login';
 import BasicLayout from '@/layouts/BasicLayout';
 import RequireAuth from '@/router/RequireAuth';
 import { appRoutes, joinPath, type AppRouteNode } from '@/router/routes';
-import type { Role } from '@/utils/constants';
+import type { Role, AssessType } from '@/utils/constants';
 
 /**
  * 把 AppRouteNode 树展开成 react-router 的扁平 RouteObject 子节点。
@@ -31,9 +31,16 @@ function buildRouteObjects(nodes: AppRouteNode[], parent = ''): RouteObject[] {
     const full = joinPath(parent, node.path);
     // 叶子（有 element）→ 注册路由
     if (node.element) {
+      const hasRoles = !!node.roles && node.roles.length > 0;
+      const hasAssessTypes = !!node.assessTypes && node.assessTypes.length > 0;
       const wrapped =
-        node.roles && node.roles.length > 0 ? (
-          <RequireAuth roles={node.roles as Role[]}>{node.element}</RequireAuth>
+        hasRoles || hasAssessTypes ? (
+          <RequireAuth
+            roles={hasRoles ? (node.roles as Role[]) : undefined}
+            assessTypes={hasAssessTypes ? (node.assessTypes as AssessType[]) : undefined}
+          >
+            {node.element}
+          </RequireAuth>
         ) : (
           node.element
         );

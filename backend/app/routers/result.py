@@ -235,16 +235,16 @@ async def export_all_reports(
     ws2 = wb.create_sheet("综合测评表")
     ws2.append([
         "所属部门", "被测评人", "岗位", "考核类型",
-        "同事1评分", "同事2评分", "同事3评分", "同事4评分",
-        "上级领导评分", "部门领导评分",
+        "同事/部门员工平均分", "评价人数",
+        "上级领导平均分", "部门领导平均分", "基层管理互评平均分",
         "加权汇总得分", "最终得分(/30)",
     ])
     for e in eval_summaries:
         ws2.append([
             e.department, e.employee_name, e.position or "", e.assess_type,
-            float(e.colleague1_score), float(e.colleague2_score),
-            float(e.colleague3_score), float(e.colleague4_score),
+            float(e.colleague_avg_score), int(e.colleague_count or 0),
             float(e.superior_score), float(e.dept_leader_score),
+            float(e.manager_mutual_score or 0),
             float(e.weighted_total), float(e.final_score),
         ])
 

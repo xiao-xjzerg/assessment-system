@@ -1,10 +1,11 @@
 /**
- * 加减分 / 重点任务分数页 —— 管理员可见。
+ * 加减分页 —— 管理员可见。
  *
  * 功能：
  *   - 加减分记录 CRUD（新增/删除，单员工总和±10限制）
- *   - 重点任务分数录入（仅基层管理人员，0~10分，支持批量保存）
  *   - 导出加减分数据 Excel
+ *
+ * 注：重点任务分数录入已独立为「填报申报 → 重点任务申报」页面。
  */
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -14,7 +15,6 @@ import {
   Space,
   Input,
   Select,
-  Tabs,
   Form,
   Modal,
   InputNumber,
@@ -27,17 +27,16 @@ import {
   PlusOutlined,
   DeleteOutlined,
   DownloadOutlined,
-  SaveOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
 import { bonusApi } from '@/services/api/bonus';
 import { employeeApi } from '@/services/api/employee';
-import type { BonusRecord, KeyTaskScore, Employee } from '@/types';
-import { ALL_DEPARTMENTS, ALL_ASSESS_TYPES, ASSESS_TYPE } from '@/utils/constants';
+import type { BonusRecord, Employee } from '@/types';
+import { ALL_DEPARTMENTS, ALL_ASSESS_TYPES } from '@/utils/constants';
 import { formatNumber, downloadBlob, extractFilename } from '@/utils/format';
 
 export default function BonusPage() {
-  const { message, modal } = AntdApp.useApp();
+  const { message } = AntdApp.useApp();
 
   // ==================== 加减分记录 ====================
   const [records, setRecords] = useState<BonusRecord[]>([]);
@@ -161,92 +160,11 @@ export default function BonusPage() {
     },
   ];
 
-  // ==================== 重点任务分数 ====================
-  const [keyTasks, setKeyTasks] = useState<KeyTaskScore[]>([]);
-  const [keyTaskLoading, setKeyTaskLoading] = useState(false);
-  const [keyTaskEdits, setKeyTaskEdits] = useState<Record<number, number>>({});
-  const [saving, setSaving] = useState(false);
-
-  const loadKeyTasks = useCallback(async () => {
-    setKeyTaskLoading(true);
-    try {
-      const res = await bonusApi.listKeyTasks();
-      setKeyTasks(res);
-      // 初始化编辑状态
-      const edits: Record<number, number> = {};
-      res.forEach((t) => {
-        edits[t.employee_id] = Number(t.score);
-      });
-      setKeyTaskEdits(edits);
-    } catch {
-      message.error('加载重点任务分数失败');
-    } finally {
-      setKeyTaskLoading(false);
-    }
-  }, [message]);
-
-  useEffect(() => {
-    loadKeyTasks();
-  }, [loadKeyTasks]);
-
-  const handleKeyTaskChange = (employeeId: number, value: number | null) => {
-    setKeyTaskEdits((prev) => ({ ...prev, [employeeId]: value ?? 0 }));
-  };
-
-  const handleBatchSave = async () => {
-    const items = Object.entries(keyTaskEdits).map(([empId, score]) => ({
-      employee_id: Number(empId),
-      score,
-    }));
-    if (items.length === 0) {
-      message.warning('没有可保存的数据');
-      return;
-    }
-    setSaving(true);
-    try {
-      await bonusApi.batchSaveKeyTasks(items);
-      message.success('批量保存成功');
-      loadKeyTasks();
-    } catch {
-      message.error('保存失败');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // 重点任务表列
-  const keyTaskColumns: ColumnsType<KeyTaskScore> = [
-    { title: '员工姓名', dataIndex: 'employee_name', width: 100 },
-    {
-      title: '重点任务分数（0~10）',
-      dataIndex: 'score',
-      width: 200,
-      render: (_: unknown, record: KeyTaskScore) => (
-        <InputNumber
-          min={0}
-          max={10}
-          step={0.5}
-          precision={1}
-          value={keyTaskEdits[record.employee_id] ?? Number(record.score)}
-          onChange={(v) => handleKeyTaskChange(record.employee_id, v)}
-          style={{ width: 120 }}
-        />
-      ),
-    },
-    {
-      title: '当前值',
-      dataIndex: 'score',
-      width: 80,
-      align: 'right',
-      render: (v: number | string) => formatNumber(Number(v)),
-    },
-  ];
-
   // ==================== 渲染 ====================
   return (
     <div style={{ padding: 24 }}>
       <Card
-        title="加减分 / 重点任务"
+        title="加减分"
         style={{
           borderRadius: 'var(--neu-radius-md)',
           boxShadow: 'var(--neu-shadow-out-2)',
@@ -258,80 +176,38 @@ export default function BonusPage() {
           </Button>
         }
       >
-        <Tabs
-          defaultActiveKey="bonus"
-          items={[
-            {
-              key: 'bonus',
-              label: '加减分记录',
-              children: (
-                <>
-                  <Space wrap style={{ marginBottom: 16 }}>
-                    <Select
-                      placeholder="部门"
-                      allowClear
-                      style={{ width: 140 }}
-                      value={recordFilter.department}
-                      onChange={(v) => setRecordFilter((f) => ({ ...f, department: v }))}
-                      options={ALL_DEPARTMENTS.map((d) => ({ label: d, value: d }))}
-                    />
-                    <Select
-                      placeholder="考核类型"
-                      allowClear
-                      style={{ width: 150 }}
-                      value={recordFilter.assess_type}
-                      onChange={(v) => setRecordFilter((f) => ({ ...f, assess_type: v }))}
-                      options={ALL_ASSESS_TYPES.map((t) => ({ label: t, value: t }))}
-                    />
-                    <Button type="primary" icon={<SearchOutlined />} onClick={loadRecords}>
-                      查询
-                    </Button>
-                    <Button icon={<PlusOutlined />} onClick={openAdd}>
-                      新增加减分
-                    </Button>
-                  </Space>
-                  <Table
-                    rowKey="id"
-                    columns={recordColumns}
-                    dataSource={records}
-                    loading={recordLoading}
-                    scroll={{ x: 800 }}
-                    size="middle"
-                    pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
-                  />
-                </>
-              ),
-            },
-            {
-              key: 'keyTask',
-              label: '重点任务分数（基层管理人员）',
-              children: (
-                <>
-                  <Space style={{ marginBottom: 16 }}>
-                    <Button
-                      type="primary"
-                      icon={<SaveOutlined />}
-                      loading={saving}
-                      onClick={handleBatchSave}
-                    >
-                      批量保存
-                    </Button>
-                    <span style={{ color: 'var(--neu-text-secondary, #888)', fontSize: 13 }}>
-                      仅基层管理人员可录入，分值范围 0~10
-                    </span>
-                  </Space>
-                  <Table
-                    rowKey="employee_id"
-                    columns={keyTaskColumns}
-                    dataSource={keyTasks}
-                    loading={keyTaskLoading}
-                    size="middle"
-                    pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
-                  />
-                </>
-              ),
-            },
-          ]}
+        <Space wrap style={{ marginBottom: 16 }}>
+          <Select
+            placeholder="部门"
+            allowClear
+            style={{ width: 140 }}
+            value={recordFilter.department}
+            onChange={(v) => setRecordFilter((f) => ({ ...f, department: v }))}
+            options={ALL_DEPARTMENTS.map((d) => ({ label: d, value: d }))}
+          />
+          <Select
+            placeholder="考核类型"
+            allowClear
+            style={{ width: 150 }}
+            value={recordFilter.assess_type}
+            onChange={(v) => setRecordFilter((f) => ({ ...f, assess_type: v }))}
+            options={ALL_ASSESS_TYPES.map((t) => ({ label: t, value: t }))}
+          />
+          <Button type="primary" icon={<SearchOutlined />} onClick={loadRecords}>
+            查询
+          </Button>
+          <Button icon={<PlusOutlined />} onClick={openAdd}>
+            新增加减分
+          </Button>
+        </Space>
+        <Table
+          rowKey="id"
+          columns={recordColumns}
+          dataSource={records}
+          loading={recordLoading}
+          scroll={{ x: 800 }}
+          size="middle"
+          pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
         />
       </Card>
 
@@ -346,7 +222,7 @@ export default function BonusPage() {
       >
         <Form form={addForm} layout="vertical">
           <Form.Item
-            label="员���"
+            label="员工"
             name="employee_id"
             rules={[{ required: true, message: '请选择员工' }]}
           >

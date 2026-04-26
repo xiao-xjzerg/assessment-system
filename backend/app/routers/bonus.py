@@ -1,27 +1,51 @@
 """加减分与重点任务路由（M9）"""
 import io
-from typing import Optional, List
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import ROLE_ADMIN, ASSESS_TYPE_MANAGER
+from app.config import ROLE_ADMIN, ROLE_LEADER, ROLE_EMPLOYEE, ASSESS_TYPE_MANAGER
 from app.database import get_db
 from app.dependencies import require_roles
 from app.models.employee import Employee
 from app.models.cycle import Cycle
-from app.schemas.bonus import BonusRecordCreate, BonusRecordOut, KeyTaskScoreUpdate, KeyTaskScoreOut
+from app.models.bonus import KeyTaskScore
+from app.schemas.bonus import (
+    BonusRecordCreate,
+    BonusRecordOut,
+    KeyTaskScoreCreate,
+    KeyTaskScoreUpdate,
+    KeyTaskScoreOut,
+)
 from app.schemas.common import ResponseModel
 from app.services.bonus_service import (
     get_bonus_records,
     create_bonus_record,
     delete_bonus_record,
     get_key_task_scores,
-    save_key_task_score,
-    batch_save_key_task_scores,
+    create_key_task_score,
+    update_key_task_score,
+    delete_key_task_score,
 )
+
+
+def _check_key_task_access(current_user: Employee, target_employee_id: Optional[int] = None) -> None:
+    """重点任务分数访问权限：
+
+    - 管理员 / 领导：可操作全部基层管理人员
+    - 普通员工 & assess_type=基层管理人员：仅可操作自己
+    - 其他：403
+    """
+    if current_user.role in (ROLE_ADMIN, ROLE_LEADER):
+        return
+    if current_user.role == ROLE_EMPLOYEE and current_user.assess_type == ASSESS_TYPE_MANAGER:
+        if target_employee_id is not None and target_employee_id != current_user.id:
+            raise HTTPException(status_code=403, detail="仅可编辑本人的重点任务分数")
+        return
+    raise HTTPException(status_code=403, detail="权限不足")
 
 router = APIRouter(prefix="/api/bonus", tags=["加减分与重点任务"])
 
@@ -93,33 +117,73 @@ async def remove_bonus_record(
     return ResponseModel(message="删除成功")
 
 
-# ---- 重点任务分数 ----
+# ---- 重点任务申报（多条申请制） ----
 
 @router.get("/key-tasks", response_model=ResponseModel)
 async def list_key_task_scores(
     employee_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: Employee = Depends(require_roles([ROLE_ADMIN])),
+    current_user: Employee = Depends(require_roles([ROLE_ADMIN, ROLE_LEADER, ROLE_EMPLOYEE])),
 ):
-    """查询重点任务分数（仅基层管理人员）"""
+    """查询重点任务申请列表
+
+    - 管理员 / 领导：返回全部（可通过 employee_id 过滤）
+    - 基层管理人员：仅返回本人申请（忽略入参 employee_id）
+    """
+    _check_key_task_access(current_user)
     cycle = await _get_active_cycle(db)
-    items = await get_key_task_scores(db, cycle.id, employee_id=employee_id)
+
+    if current_user.role == ROLE_EMPLOYEE:
+        items = await get_key_task_scores(db, cycle.id, employee_id=current_user.id)
+    else:
+        items = await get_key_task_scores(db, cycle.id, employee_id=employee_id)
+
     data = [KeyTaskScoreOut.model_validate(i).model_dump() for i in items]
     return ResponseModel(data=data)
 
 
 @router.post("/key-tasks", response_model=ResponseModel)
-async def save_key_task(
-    body: KeyTaskScoreUpdate,
+async def add_key_task(
+    body: KeyTaskScoreCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: Employee = Depends(require_roles([ROLE_ADMIN])),
+    current_user: Employee = Depends(require_roles([ROLE_ADMIN, ROLE_LEADER, ROLE_EMPLOYEE])),
 ):
-    """保存/更新单个重点任务分数"""
+    """新增一条重点任务申请"""
+    _check_key_task_access(current_user, body.employee_id)
     cycle = await _get_active_cycle(db)
     try:
-        record = await save_key_task_score(
+        record = await create_key_task_score(
             db, cycle.id,
             employee_id=body.employee_id,
+            task_name=body.task_name,
+            completion=body.completion,
+            score=body.score,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    data = KeyTaskScoreOut.model_validate(record).model_dump()
+    return ResponseModel(message="添加成功", data=data)
+
+
+@router.put("/key-tasks/{record_id}", response_model=ResponseModel)
+async def modify_key_task(
+    record_id: int,
+    body: KeyTaskScoreUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Employee = Depends(require_roles([ROLE_ADMIN, ROLE_LEADER, ROLE_EMPLOYEE])),
+):
+    """编辑一条重点任务申请"""
+    target = await db.get(KeyTaskScore, record_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="重点任务申请不存在")
+    _check_key_task_access(current_user, target.employee_id)
+
+    try:
+        record = await update_key_task_score(
+            db, record_id,
+            task_name=body.task_name,
+            completion=body.completion,
             score=body.score,
         )
     except ValueError as e:
@@ -129,24 +193,24 @@ async def save_key_task(
     return ResponseModel(message="保存成功", data=data)
 
 
-@router.post("/key-tasks/batch", response_model=ResponseModel)
-async def batch_save_key_tasks(
-    items: List[KeyTaskScoreUpdate],
+@router.delete("/key-tasks/{record_id}", response_model=ResponseModel)
+async def remove_key_task(
+    record_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: Employee = Depends(require_roles([ROLE_ADMIN])),
+    current_user: Employee = Depends(require_roles([ROLE_ADMIN, ROLE_LEADER, ROLE_EMPLOYEE])),
 ):
-    """批量保存重点任务分数"""
-    cycle = await _get_active_cycle(db)
-    try:
-        records = await batch_save_key_task_scores(
-            db, cycle.id,
-            [{"employee_id": i.employee_id, "score": i.score} for i in items],
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    """删除一条重点任务申请"""
+    target = await db.get(KeyTaskScore, record_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="重点任务申请不存在")
+    _check_key_task_access(current_user, target.employee_id)
 
-    data = [KeyTaskScoreOut.model_validate(r).model_dump() for r in records]
-    return ResponseModel(message="批量保存成功", data=data)
+    try:
+        await delete_key_task_score(db, record_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return ResponseModel(message="删除成功")
 
 
 # ---- 导出 ----
@@ -175,11 +239,16 @@ async def export_excel(
             r.description, float(r.value),
         ])
 
-    # Sheet2: 重点任务分数
-    ws2 = wb.create_sheet("重点任务分数")
-    ws2.append(["员工姓名", "重点任务分数"])
+    # Sheet2: 重点任务申请明细（多条/员工）
+    ws2 = wb.create_sheet("重点任务申请")
+    ws2.append(["员工姓名", "重点任务名称", "完成情况", "申请分值"])
     for k in key_tasks:
-        ws2.append([k.employee_name, float(k.score)])
+        ws2.append([
+            k.employee_name,
+            k.task_name or "",
+            k.completion or "",
+            float(k.score),
+        ])
 
     for ws_item in [ws, ws2]:
         for col_cells in ws_item.columns:

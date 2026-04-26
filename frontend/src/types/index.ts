@@ -407,12 +407,11 @@ export interface EvalSummary {
   department: string;
   position: string | null;
   assess_type: string;
-  colleague1_score: number | string;
-  colleague2_score: number | string;
-  colleague3_score: number | string;
-  colleague4_score: number | string;
+  colleague_avg_score: number | string;
+  colleague_count: number;
   superior_score: number | string;
   dept_leader_score: number | string;
+  manager_mutual_score: number | string;
   weighted_total: number | string;
   final_score: number | string;
 }
@@ -514,11 +513,21 @@ export interface KeyTaskScore {
   cycle_id: number;
   employee_id: number;
   employee_name: string;
+  task_name: string;
+  completion: string;
+  score: number | string;
+}
+
+export interface KeyTaskScoreCreate {
+  employee_id: number;
+  task_name: string;
+  completion: string;
   score: number | string;
 }
 
 export interface KeyTaskScoreUpdate {
-  employee_id: number;
+  task_name: string;
+  completion: string;
   score: number | string;
 }
 

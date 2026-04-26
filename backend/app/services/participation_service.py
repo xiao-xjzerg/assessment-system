@@ -137,29 +137,37 @@ async def delete_participation(db: AsyncSession, participation_id: int):
 
 
 async def get_project_participation_summary(db: AsyncSession, cycle_id: int) -> list:
-    """获取所有项目的参与度填报概览（用于管理员工作台统计）"""
-    # 所有项目
+    """获取所有项目的参与度填报概览（用于管理员工作台统计）
+
+    filled 口径（严格）：项目必须至少存在一条参与度记录，且所有记录的
+    status 均为"已提交"或"已修改"；只要有"已保存/未填"则算未完成。
+    """
     projects_result = await db.execute(
         select(Project).where(Project.cycle_id == cycle_id)
     )
     all_projects = projects_result.scalars().all()
 
-    # 已填报的项目（有参与度记录的项目ID）
-    filled_result = await db.execute(
-        select(Participation.project_id).where(
+    parts_result = await db.execute(
+        select(Participation.project_id, Participation.status).where(
             Participation.cycle_id == cycle_id
-        ).distinct()
+        )
     )
-    filled_project_ids = set(r[0] for r in filled_result.all())
+    project_statuses: dict[int, set[str]] = {}
+    for pid, status in parts_result.all():
+        project_statuses.setdefault(pid, set()).add(status or "")
+
+    submitted_set = {"已提交", "已修改"}
 
     summary = []
     for p in all_projects:
+        statuses = project_statuses.get(p.id, set())
+        filled = len(statuses) > 0 and statuses.issubset(submitted_set)
         summary.append({
             "project_id": p.id,
             "project_name": p.project_name,
             "project_code": p.project_code,
             "department": p.department,
             "pm_name": p.pm_name,
-            "filled": p.id in filled_project_ids,
+            "filled": filled,
         })
     return summary

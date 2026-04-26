@@ -157,11 +157,11 @@ def _calc_dimension_scores(
         else:
             economic_score = min(econ, D("20"))
 
-    # 重点任务得分（仅基层管理人员）
+    # 重点任务得分（仅基层管理人员）= 该员工所有申请分值之和
+    # 业务层已保证单员工合计 ≤ 10；此处对异常数据再兜底截到 10
     if assess_type == ASSESS_TYPE_MANAGER:
-        kt = key_task_scores.get(emp.id)
-        if kt:
-            key_task_score = D(str(kt.score or 0))
+        kt_total = key_task_scores.get(emp.id, ZERO)
+        key_task_score = min(kt_total, D("10"))
 
     # 工作目标完成度得分（仅公共人员，满分70；多位领导评分时取均值）
     if assess_type == ASSESS_TYPE_PUBLIC:
@@ -323,8 +323,14 @@ async def _load_bonus_sums(db: AsyncSession, cycle_id: int) -> dict[int, D]:
     }
 
 
-async def _load_key_task_scores(db: AsyncSession, cycle_id: int) -> dict[int, KeyTaskScore]:
+async def _load_key_task_scores(db: AsyncSession, cycle_id: int) -> dict[int, D]:
+    """按员工聚合 key_task_scores（新版为多条申请制，需要 sum）。"""
     result = await db.execute(
-        select(KeyTaskScore).where(KeyTaskScore.cycle_id == cycle_id)
+        select(
+            KeyTaskScore.employee_id,
+            func.coalesce(func.sum(KeyTaskScore.score), 0).label("total"),
+        )
+        .where(KeyTaskScore.cycle_id == cycle_id)
+        .group_by(KeyTaskScore.employee_id)
     )
-    return {k.employee_id: k for k in result.scalars().all()}
+    return {row.employee_id: D(str(row.total)) for row in result.all()}

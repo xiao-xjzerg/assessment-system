@@ -68,9 +68,14 @@ export default function BasicLayout() {
   }, [activeCycle, fetchActiveCycle]);
 
   const menuData = useMemo<MenuDataItem[]>(() => {
-    const filtered = filterRoutesByRole(appRoutes, user?.role, !!user?.is_pm);
+    const filtered = filterRoutesByRole(
+      appRoutes,
+      user?.role,
+      !!user?.is_pm,
+      user?.assess_type,
+    );
     return toMenuData(filtered);
-  }, [user?.role, user?.is_pm]);
+  }, [user?.role, user?.is_pm, user?.assess_type]);
 
   const handleLogout = () => {
     modal.confirm({

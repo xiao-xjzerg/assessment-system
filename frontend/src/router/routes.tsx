@@ -24,6 +24,7 @@ import ParameterPage from '@/pages/parameter';
 import ProjectPage from '@/pages/project';
 import ParticipationPage from '@/pages/participation';
 import PublicScorePage from '@/pages/publicScore';
+import KeyTaskPage from '@/pages/keyTask';
 import ScorePage from '@/pages/score';
 import EconomicPage from '@/pages/economic';
 import RelationsPage from '@/pages/evaluation/Relations';
@@ -34,7 +35,7 @@ import BonusPage from '@/pages/bonus';
 import ResultPage from '@/pages/result';
 import ProfilePage from '@/pages/profile';
 import ThemePreviewPage from '@/pages/system/themePreview';
-import { ROLE, type Role } from '@/utils/constants';
+import { ROLE, type Role, type AssessType } from '@/utils/constants';
 
 
 export interface AppRouteNode {
@@ -46,6 +47,14 @@ export interface AppRouteNode {
   icon?: ReactNode;
   /** 允许的角色；未指定视为所有登录用户 */
   roles?: Role[];
+  /**
+   * 允许的考核类型（可选）；
+   * 仅当用户 role === 普通员工 时生效（ADMIN/LEADER 不受此字段限制）。
+   * 用于"重点任务申报"这类按 assess_type 区分的场景：
+   *   roles=[ADMIN, LEADER, EMPLOYEE] + assessTypes=[基层管理人员]
+   *   ⇒ 管理员/领导照常可见，普通员工仅基层管理人员可见。
+   */
+  assessTypes?: AssessType[];
   /** 路由对应组件；有 children 时可省略（作为菜单分组） */
   element?: ReactNode;
   /** 子路由 */
@@ -122,6 +131,14 @@ export const appRoutes: AppRouteNode[] = [
         title: '公共积分申报',
         element: <PublicScorePage />,
       },
+      {
+        path: 'key-task',
+        title: '重点任务申报',
+        roles: [ROLE.ADMIN, ROLE.LEADER, ROLE.EMPLOYEE],
+        // 普通员工中仅基层管理人员可见；管理员/领导不受此限制
+        assessTypes: ['基层管理人员'],
+        element: <KeyTaskPage />,
+      },
     ],
   },
   {
@@ -182,7 +199,7 @@ export const appRoutes: AppRouteNode[] = [
     children: [
       {
         path: 'bonus',
-        title: '加减分 / 重点任务',
+        title: '加减分',
         roles: [ROLE.ADMIN],
         element: <BonusPage />,
       },
@@ -235,31 +252,39 @@ export const appRoutes: AppRouteNode[] = [
  *  - 未登录（无 role）：一律不可见；
  *  - 路由未指定 roles：所有已登录用户可见；
  *  - 路由指定 roles：用户 role 命中即可见；
- *  - 若 roles 包含"项目经理"且用户 isPm 为 true，也视为命中（派生 PM 权限）。
+ *  - 若 roles 包含"项目经理"且用户 isPm 为 true，也视为命中（派生 PM 权限）；
+ *  - 若节点进一步指定 assessTypes，仅对角色=普通员工生效：
+ *    user.assess_type ∈ assessTypes 才命中；管理员/领导不受此限制。
  */
 export function isRouteVisible(
   node: AppRouteNode,
   role: string | undefined,
   isPm = false,
+  assessType?: string | null,
 ): boolean {
   if (!role) return false;
   if (!node.roles || node.roles.length === 0) return true;
-  if (node.roles.includes(role as Role)) return true;
-  if (isPm && node.roles.includes(ROLE.PM)) return true;
-  return false;
+  const roleMatched =
+    node.roles.includes(role as Role) || (isPm && node.roles.includes(ROLE.PM));
+  if (!roleMatched) return false;
+  if (node.assessTypes && node.assessTypes.length > 0 && role === ROLE.EMPLOYEE) {
+    return !!assessType && node.assessTypes.includes(assessType as AssessType);
+  }
+  return true;
 }
 
-/** 按用户角色+派生 PM 过滤一棵路由树 */
+/** 按用户角色+派生 PM+考核类型 过滤一棵路由树 */
 export function filterRoutesByRole(
   nodes: AppRouteNode[],
   role: string | undefined,
   isPm = false,
+  assessType?: string | null,
 ): AppRouteNode[] {
   const result: AppRouteNode[] = [];
   for (const node of nodes) {
-    if (!isRouteVisible(node, role, isPm)) continue;
+    if (!isRouteVisible(node, role, isPm, assessType)) continue;
     if (node.children && node.children.length > 0) {
-      const children = filterRoutesByRole(node.children, role, isPm);
+      const children = filterRoutesByRole(node.children, role, isPm, assessType);
       if (children.length === 0) continue;
       result.push({ ...node, children });
     } else {
@@ -281,14 +306,15 @@ export function findFirstAccessibleRoute(
   nodes: AppRouteNode[],
   role: string | undefined,
   isPm = false,
+  assessType?: string | null,
   parent = '',
 ): string | null {
   for (const node of nodes) {
     if (node.hideInMenu) continue;
-    if (!isRouteVisible(node, role, isPm)) continue;
+    if (!isRouteVisible(node, role, isPm, assessType)) continue;
     const full = joinPath(parent, node.path);
     if (node.children && node.children.length > 0) {
-      const found = findFirstAccessibleRoute(node.children, role, isPm, full);
+      const found = findFirstAccessibleRoute(node.children, role, isPm, assessType, full);
       if (found) return found;
     } else if (node.element) {
       return full;

@@ -282,17 +282,17 @@ async def export_summaries(
     ws.title = "综合评价汇总"
     headers = [
         "姓名", "部门", "岗位", "考核类型",
-        "同事1评分", "同事2评分", "同事3评分", "同事4评分",
-        "上级领导评分", "部门领导评分",
+        "同事/部门员工平均分", "评价人数",
+        "上级领导平均分", "部门领导平均分", "基层管理互评平均分",
         "加权汇总得分", "最终得分(30分制)",
     ]
     ws.append(headers)
     for s in items:
         ws.append([
             s.employee_name, s.department, s.position or "", s.assess_type,
-            float(s.colleague1_score), float(s.colleague2_score),
-            float(s.colleague3_score), float(s.colleague4_score),
+            float(s.colleague_avg_score), int(s.colleague_count or 0),
             float(s.superior_score), float(s.dept_leader_score),
+            float(s.manager_mutual_score or 0),
             float(s.weighted_total), float(s.final_score),
         ])
     for col_idx, col in enumerate(ws.columns, 1):

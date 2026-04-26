@@ -243,8 +243,8 @@ export default function RelationsPage() {
                 评价进度
               </div>
               <Progress
-                percent={Math.round(progress.progress * 100)}
-                status={progress.progress >= 1 ? 'success' : 'active'}
+                percent={Math.round(progress.progress * 10) / 10}
+                status={progress.progress >= 100 ? 'success' : 'active'}
                 strokeColor={{ from: '#108ee9', to: '#87d068' }}
               />
             </Col>

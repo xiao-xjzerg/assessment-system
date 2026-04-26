@@ -23,9 +23,17 @@ class BonusRecordOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class KeyTaskScoreUpdate(BaseModel):
+class KeyTaskScoreCreate(BaseModel):
     employee_id: int
-    score: Decimal = Field(..., ge=0, le=10, description="重点任务分数 0~10")
+    task_name: str = Field(..., min_length=1, max_length=200, description="重点任务名称")
+    completion: str = Field(..., min_length=1, max_length=1000, description="完成情况（含团队成员）")
+    score: Decimal = Field(..., ge=1, le=10, description="申请分值 1~10")
+
+
+class KeyTaskScoreUpdate(BaseModel):
+    task_name: str = Field(..., min_length=1, max_length=200, description="重点任务名称")
+    completion: str = Field(..., min_length=1, max_length=1000, description="完成情况（含团队成员）")
+    score: Decimal = Field(..., ge=1, le=10, description="申请分值 1~10")
 
 
 class KeyTaskScoreOut(BaseModel):
@@ -33,6 +41,8 @@ class KeyTaskScoreOut(BaseModel):
     cycle_id: int
     employee_id: int
     employee_name: str
+    task_name: str
+    completion: str
     score: Decimal
 
     model_config = {"from_attributes": True}
