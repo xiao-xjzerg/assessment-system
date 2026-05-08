@@ -22,6 +22,9 @@ env/
 .env
 .env.*
 
+# Local deployment notes
+agent.md
+
 # IDE
 .vscode/
 .idea/
