@@ -217,6 +217,20 @@ export default function EmployeePage() {
     }
   };
 
+  // ---- 全量导出 ----
+  const onExportExcel = async () => {
+    try {
+      const resp = await employeeApi.exportExcel();
+      const filename = extractFilename(
+        resp.headers['content-disposition'] as string | undefined,
+        'employee_export.xlsx',
+      );
+      downloadBlob(resp.data, filename);
+    } catch {
+      message.error('员工数据导出失败');
+    }
+  };
+
   // ---- Excel 导入 ----
   const beforeUpload: UploadProps['beforeUpload'] = (file) => {
     const ok = /\.(xlsx|xls)$/i.test(file.name);
@@ -291,8 +305,18 @@ export default function EmployeePage() {
       {
         title: '组/中心',
         dataIndex: 'group_name',
-        width: 130,
-        render: (v) => v || '-',
+        width: 180,
+        ellipsis: true,
+        render: (v: string | null) => {
+          const text = v || '-';
+          return (
+            <Tooltip title={text === '-' ? undefined : text}>
+              <span style={{ display: 'inline-block', maxWidth: 150, whiteSpace: 'nowrap' }}>
+                {text}
+              </span>
+            </Tooltip>
+          );
+        },
       },
       {
         title: '岗位',
@@ -394,6 +418,9 @@ export default function EmployeePage() {
           <Space>
             <Button icon={<DownloadOutlined />} onClick={onDownloadTemplate}>
               下载模板
+            </Button>
+            <Button icon={<DownloadOutlined />} onClick={onExportExcel}>
+              导出
             </Button>
             <Button icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>
               导入 Excel

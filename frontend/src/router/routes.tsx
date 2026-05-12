@@ -34,7 +34,6 @@ import WorkGoalPage from '@/pages/evaluation/WorkGoal';
 import BonusPage from '@/pages/bonus';
 import ResultPage from '@/pages/result';
 import ProfilePage from '@/pages/profile';
-import ThemePreviewPage from '@/pages/system/themePreview';
 import { ROLE, type Role, type AssessType } from '@/utils/constants';
 
 
@@ -208,20 +207,6 @@ export const appRoutes: AppRouteNode[] = [
         title: '最终成绩',
         roles: [ROLE.ADMIN, ROLE.LEADER],
         element: <ResultPage />,
-      },
-    ],
-  },
-  {
-    path: 'system',
-    title: '系统设置',
-    icon: <SettingOutlined />,
-    roles: [ROLE.ADMIN],
-    children: [
-      {
-        path: 'theme-preview',
-        title: '主题预览',
-        roles: [ROLE.ADMIN],
-        element: <ThemePreviewPage />,
       },
     ],
   },

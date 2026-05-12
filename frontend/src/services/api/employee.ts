@@ -29,6 +29,9 @@ export const employeeApi = {
   /** 下载员工导入模板 */
   downloadTemplate: () => download('/employees/template'),
 
+  /** 导出当前周期全量员工数据 */
+  exportExcel: () => download('/employees/export'),
+
   /** 导入员工 Excel；reimport=true 为全量更新 */
   importExcel: (file: File, reimport = false) =>
     upload<ImportResult>('/employees/import', file, { reimport }),

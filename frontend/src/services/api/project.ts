@@ -26,6 +26,8 @@ export const projectApi = {
 
   downloadTemplate: () => download('/projects/template'),
 
+  exportExcel: () => download('/projects/export'),
+
   importExcel: (file: File, reimport = false) =>
     upload<ImportResult>('/projects/import', file, { reimport }),
 };

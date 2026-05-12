@@ -103,6 +103,36 @@ def generate_template(columns: list[tuple[str, str]], sample_data: list[dict] | 
     return buf.getvalue()
 
 
+def generate_export(columns: list[tuple[str, str]], rows: list[dict], sheet_title: str = "数据") -> bytes:
+    """按指定列生成 Excel 导出文件，字段顺序与模板保持一致。"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_title
+
+    headers = [col[0] for col in columns]
+    fields = [col[1] for col in columns]
+    ws.append(headers)
+
+    for i, header in enumerate(headers, 1):
+        ws.column_dimensions[chr(64 + i) if i <= 26 else "A"].width = max(len(header) * 2 + 4, 15)
+
+    for row_data in rows:
+        ws.append([row_data.get(field, "") for field in fields])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def generate_employee_export(rows: list[dict]) -> bytes:
+    return generate_export(EMPLOYEE_COLUMNS, rows, "员工数据")
+
+
+def generate_project_export(rows: list[dict]) -> bytes:
+    return generate_export(PROJECT_COLUMNS, rows, "项目数据")
+
+
 def generate_employee_template() -> bytes:
     # 角色仅允许 管理员/普通员工/领导；留空则默认为"普通员工"
     # 角色=领导时，"组/中心"与"考核类型"可留空（领导不参与考核）

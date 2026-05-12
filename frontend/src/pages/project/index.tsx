@@ -271,6 +271,20 @@ export default function ProjectPage() {
     }
   };
 
+  // ---- 全量导出 ----
+  const onExportExcel = async () => {
+    try {
+      const resp = await projectApi.exportExcel();
+      const filename = extractFilename(
+        resp.headers['content-disposition'] as string | undefined,
+        'project_export.xlsx',
+      );
+      downloadBlob(resp.data, filename);
+    } catch {
+      message.error('项目数据导出失败');
+    }
+  };
+
   // ---- Excel 导入 ----
   const beforeUpload: UploadProps['beforeUpload'] = (file) => {
     const ok = /\.(xlsx|xls)$/i.test(file.name);
@@ -378,6 +392,7 @@ export default function ProjectPage() {
         title: '项目名称',
         dataIndex: 'project_name',
         width: 240,
+        fixed: 'left',
         ellipsis: true,
       },
       {
@@ -389,26 +404,43 @@ export default function ProjectPage() {
       {
         title: '主承部门',
         dataIndex: 'department',
-        width: 120,
-        render: (v) => v || '-',
+        width: 170,
+        ellipsis: true,
+        render: (v: string | null) => {
+          const text = v || '-';
+          return (
+            <Tooltip title={text === '-' ? undefined : text}>
+              <span style={{ display: 'inline-block', maxWidth: 140, whiteSpace: 'nowrap' }}>
+                {text}
+              </span>
+            </Tooltip>
+          );
+        },
       },
       {
         title: '项目经理',
         dataIndex: 'pm_name',
-        width: 140,
+        width: 90,
+        ellipsis: true,
         render: (v: string | null, row: Project) => {
           if (!v) return '-';
           if (row.pm_missing) {
             return (
               <Tooltip title="该姓名在员工信息表中不存在或存在同名冲突，无法赋予项目经理权限">
-                <Space direction="vertical" size={0}>
+                <Space direction="vertical" size={0} style={{ maxWidth: 72 }}>
                   <span style={{ color: '#ff4d4f', fontWeight: 500 }}>{v}</span>
                   <span style={{ fontSize: 11, color: '#ff4d4f' }}>缺少员工信息</span>
                 </Space>
               </Tooltip>
             );
           }
-          return v;
+          return (
+            <Tooltip title={v}>
+              <span style={{ display: 'inline-block', maxWidth: 72, whiteSpace: 'nowrap' }}>
+                {v}
+              </span>
+            </Tooltip>
+          );
         },
       },
       {
@@ -523,6 +555,9 @@ export default function ProjectPage() {
             </Button>
             <Button icon={<DownloadOutlined />} onClick={onDownloadTemplate}>
               下载模板
+            </Button>
+            <Button icon={<DownloadOutlined />} onClick={onExportExcel}>
+              导出
             </Button>
             <Button icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>
               导入 Excel

@@ -18,7 +18,13 @@ from app.services.project_service import (
     get_projects, import_projects, reimport_projects, calc_project_coefficients,
     normalize_signing_probability,
 )
-from app.services.excel_service import parse_project_excel, generate_project_template
+from app.services.excel_service import (
+    PROJECT_COLUMNS,
+    parse_project_excel,
+    generate_project_template,
+    generate_project_export,
+)
+from app.utils.export import excel_content_disposition
 
 import io
 from decimal import Decimal
@@ -50,6 +56,35 @@ async def download_template():
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=project_template.xlsx"},
+    )
+
+
+@router.get("/export", response_model=None)
+async def export_excel(
+    db: AsyncSession = Depends(get_db),
+    current_user: Employee = Depends(require_roles([ROLE_ADMIN])),
+):
+    """导出当前周期全量项目数据，字段与导入模板一致。"""
+    cycle = await _get_active_cycle(db)
+    result = await db.execute(
+        select(Project)
+        .where(Project.cycle_id == cycle.id)
+        .order_by(Project.id)
+    )
+    projects = list(result.scalars().all())
+    fields = [field for _, field in PROJECT_COLUMNS]
+    rows = []
+    for project in projects:
+        row = {}
+        for field in fields:
+            value = getattr(project, field, "")
+            row[field] = "" if value is None else value
+        rows.append(row)
+    data = generate_project_export(rows)
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": excel_content_disposition("project_export.xlsx")},
     )
 
 

@@ -16,7 +16,13 @@ from app.schemas.common import ResponseModel, PaginatedData
 from app.services.employee_service import (
     get_employees, import_employees, reimport_employees, reset_password,
 )
-from app.services.excel_service import parse_employee_excel, generate_employee_template
+from app.services.excel_service import (
+    EMPLOYEE_COLUMNS,
+    parse_employee_excel,
+    generate_employee_template,
+    generate_employee_export,
+)
+from app.utils.export import excel_content_disposition
 
 import io
 
@@ -40,6 +46,35 @@ async def download_template():
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=employee_template.xlsx"},
+    )
+
+
+@router.get("/export", response_model=None)
+async def export_excel(
+    db: AsyncSession = Depends(get_db),
+    current_user: Employee = Depends(require_roles([ROLE_ADMIN])),
+):
+    """导出当前周期全量员工数据，字段与导入模板一致。"""
+    cycle = await _get_active_cycle(db)
+    result = await db.execute(
+        select(Employee)
+        .where(Employee.cycle_id == cycle.id)
+        .order_by(Employee.id)
+    )
+    employees = list(result.scalars().all())
+    fields = [field for _, field in EMPLOYEE_COLUMNS]
+    rows = []
+    for emp in employees:
+        row = {}
+        for field in fields:
+            value = getattr(emp, field, "")
+            row[field] = "" if value is None else value
+        rows.append(row)
+    data = generate_employee_export(rows)
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": excel_content_disposition("employee_export.xlsx")},
     )
 
 
