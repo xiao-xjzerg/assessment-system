@@ -24,6 +24,7 @@ from app.services.result_service import (
     update_rating,
     update_leader_comment,
 )
+from app.utils.export import excel_content_disposition
 
 router = APIRouter(prefix="/api/results", tags=["成绩汇总"])
 
@@ -33,6 +34,20 @@ async def _get_active_cycle(db: AsyncSession) -> Cycle:
     cycle = result.scalar_one_or_none()
     if cycle is None:
         raise HTTPException(status_code=400, detail="没有活跃的考核周期")
+    return cycle
+
+
+async def _get_result_cycle(
+    db: AsyncSession, cycle_id: Optional[int], current_user: Employee
+) -> Cycle:
+    if cycle_id is None:
+        return await _get_active_cycle(db)
+    if current_user.role != ROLE_ADMIN:
+        raise HTTPException(status_code=403, detail="归档数据仅限管理员查看")
+    result = await db.execute(select(Cycle).where(Cycle.id == cycle_id))
+    cycle = result.scalar_one_or_none()
+    if cycle is None:
+        raise HTTPException(status_code=404, detail="考核周期不存在")
     return cycle
 
 
@@ -52,6 +67,7 @@ async def trigger_calculation(
 # ---- 查询最终成绩 ----
 @router.get("", response_model=ResponseModel)
 async def list_results(
+    cycle_id: Optional[int] = Query(None),
     department: Optional[str] = Query(None),
     assess_type: Optional[str] = Query(None),
     employee_name: Optional[str] = Query(None),
@@ -64,7 +80,7 @@ async def list_results(
     查询最终考核成绩。
     管理员/领导可查全部，其他角色只查自己。
     """
-    cycle = await _get_active_cycle(db)
+    cycle = await _get_result_cycle(db, cycle_id, current_user)
 
     if current_user.role in (ROLE_ADMIN, ROLE_LEADER):
         items = await get_final_results(
@@ -131,11 +147,12 @@ async def set_comment(
 # ---- 导出成绩总表 Excel ----
 @router.get("/export", response_model=None)
 async def export_excel(
+    cycle_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: Employee = Depends(require_roles([ROLE_ADMIN])),
 ):
     """导出最终考核成绩总表。按考核类型分Sheet，统一 11 列 + 评语。"""
-    cycle = await _get_active_cycle(db)
+    cycle = await _get_result_cycle(db, cycle_id, current_user)
     all_results = await get_final_results(db, cycle.id)
 
     from openpyxl import Workbook
@@ -183,13 +200,18 @@ async def export_excel(
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename=final_results_{cycle.name}.xlsx"},
+        headers={
+            "Content-Disposition": excel_content_disposition(
+                f"final_results_{cycle.name}.xlsx"
+            )
+        },
     )
 
 
 # ---- 导出全部报表（4个Sheet） ----
 @router.get("/export-all", response_model=None)
 async def export_all_reports(
+    cycle_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: Employee = Depends(require_roles([ROLE_ADMIN])),
 ):
@@ -200,7 +222,7 @@ async def export_all_reports(
     3. 经济指标核算表
     4. 最终考核成绩总表
     """
-    cycle = await _get_active_cycle(db)
+    cycle = await _get_result_cycle(db, cycle_id, current_user)
 
     from openpyxl import Workbook
     from app.services.score_service import export_score_data
@@ -300,7 +322,11 @@ async def export_all_reports(
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename=all_reports_{cycle.name}.xlsx"},
+        headers={
+            "Content-Disposition": excel_content_disposition(
+                f"all_reports_{cycle.name}.xlsx"
+            )
+        },
     )
 
 

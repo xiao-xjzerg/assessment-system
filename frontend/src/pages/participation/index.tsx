@@ -45,6 +45,7 @@ interface EditRow {
   employee_id: number;
   employee_name: string;
   department: string;
+  phase: '售前' | '交付';
   participation_coeff: number;
 }
 
@@ -73,6 +74,7 @@ function SummaryTab() {
 
   const columns: ColumnsType<ParticipationSummary> = [
     { title: '项目令号', dataIndex: 'project_code', width: 140 },
+    { title: '阶段', dataIndex: 'phase', width: 80, render: (v: string) => <Tag color={v === '售前' ? 'blue' : 'green'}>{v}</Tag> },
     { title: '项目名称', dataIndex: 'project_name', ellipsis: true },
     { title: '主承部门', dataIndex: 'department', width: 120 },
     { title: '项目经理', dataIndex: 'pm_name', width: 100 },
@@ -96,7 +98,7 @@ function SummaryTab() {
 
   return (
     <Table<ParticipationSummary>
-      rowKey="project_id"
+      rowKey={(record) => `${record.project_id}-${record.phase}`}
       columns={columns}
       dataSource={data}
       loading={loading}
@@ -116,6 +118,7 @@ function FillTab() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projLoading, setProjLoading] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [selectedPhase, setSelectedPhase] = useState<'售前' | '交付' | null>(null);
 
   // 参与度记录
   const [rows, setRows] = useState<EditRow[]>([]);
@@ -143,10 +146,10 @@ function FillTab() {
   }, [message, selectedProjectId]);
 
   // 加载参与度
-  const loadParticipation = useCallback(async (projectId: number) => {
+  const loadParticipation = useCallback(async (projectId: number, phase: '售前' | '交付') => {
     setPartLoading(true);
     try {
-      const res = await participationApi.listByProject(projectId);
+      const res = await participationApi.listByProject(projectId, phase);
       setRows(
         res.map((p: Participation) => ({
           key: `p-${p.id}`,
@@ -154,6 +157,7 @@ function FillTab() {
           employee_id: p.employee_id,
           employee_name: p.employee_name,
           department: p.department,
+          phase: p.phase,
           participation_coeff: Number(p.participation_coeff),
         })),
       );
@@ -183,16 +187,41 @@ function FillTab() {
   }, [loadProjects, loadEmployees]);
 
   useEffect(() => {
-    if (selectedProjectId !== null) {
-      loadParticipation(selectedProjectId);
+    if (selectedProjectId !== null && selectedPhase !== null) {
+      loadParticipation(selectedProjectId, selectedPhase);
     }
-  }, [selectedProjectId, loadParticipation]);
+  }, [selectedProjectId, selectedPhase, loadParticipation]);
 
   // 当前项目
   const currentProject = useMemo(
     () => projects.find((p) => p.id === selectedProjectId),
     [projects, selectedProjectId],
   );
+
+  const phaseOptions = useMemo(() => {
+    if (!currentProject) return [];
+    const presaleCurrent =
+      Number(currentProject.presale_progress || 0) -
+      Number(currentProject.used_presale_progress || 0);
+    const deliveryCurrent =
+      Number(currentProject.delivery_progress || 0) -
+      Number(currentProject.used_delivery_progress || 0);
+    const options: { label: string; value: '售前' | '交付' }[] = [];
+    if (presaleCurrent > 0) options.push({ label: '售前', value: '售前' });
+    if (deliveryCurrent > 0) options.push({ label: '交付', value: '交付' });
+    return options;
+  }, [currentProject]);
+
+  useEffect(() => {
+    if (phaseOptions.length === 0) {
+      setSelectedPhase(null);
+      setRows([]);
+      return;
+    }
+    if (!selectedPhase || !phaseOptions.some((o) => o.value === selectedPhase)) {
+      setSelectedPhase(phaseOptions[0].value);
+    }
+  }, [phaseOptions, selectedPhase]);
 
   // 已选员工 ID 集合
   const selectedEmpIds = useMemo(() => new Set(rows.map((r) => r.employee_id)), [rows]);
@@ -233,6 +262,7 @@ function FillTab() {
         employee_id: emp.id,
         employee_name: emp.name,
         department: emp.department,
+        phase: selectedPhase || '交付',
         participation_coeff: 0,
       },
     ]);
@@ -261,7 +291,7 @@ function FillTab() {
 
   // 保存 / 提交
   const handleSave = async (submit: boolean) => {
-    if (!selectedProjectId) return;
+    if (!selectedProjectId || !selectedPhase) return;
     if (rows.length === 0) {
       message.warning('请先添加参与人');
       return;
@@ -285,6 +315,7 @@ function FillTab() {
       await participationApi.save(
         {
           project_id: selectedProjectId,
+          phase: selectedPhase,
           items: rows.map((r) => ({
             employee_id: r.employee_id,
             employee_name: r.employee_name,
@@ -295,7 +326,7 @@ function FillTab() {
         submit,
       );
       message.success(submit ? '参与度已提交' : '参与度已保存');
-      loadParticipation(selectedProjectId);
+      loadParticipation(selectedProjectId, selectedPhase);
     } catch {
       message.error(submit ? '提交失败' : '保存失败');
     } finally {
@@ -306,6 +337,7 @@ function FillTab() {
   const columns: ColumnsType<EditRow> = [
     { title: '员工姓名', dataIndex: 'employee_name', width: 100 },
     { title: '部门', dataIndex: 'department', width: 120 },
+    { title: '阶段', dataIndex: 'phase', width: 80, render: (v: string) => <Tag color={v === '售前' ? 'blue' : 'green'}>{v}</Tag> },
     {
       title: '参与系数',
       dataIndex: 'participation_coeff',
@@ -390,11 +422,20 @@ function FillTab() {
           {/* 添加员工 + 操作按钮 */}
           <Space wrap>
             <Select
+              placeholder="选择阶段"
+              style={{ width: 120 }}
+              value={selectedPhase}
+              options={phaseOptions}
+              disabled={phaseOptions.length === 0}
+              onChange={(val) => setSelectedPhase(val)}
+            />
+            <Select
               placeholder="添加参与人"
               showSearch
               optionFilterProp="label"
               style={{ width: 260 }}
               loading={empLoading}
+              disabled={!selectedPhase}
               value={null as unknown as number}
               onChange={handleAddEmployee}
               options={availableEmployees.map((e) => ({
@@ -406,6 +447,7 @@ function FillTab() {
               icon={<SaveOutlined />}
               onClick={() => handleSave(false)}
               loading={saving}
+              disabled={!selectedPhase}
             >
               保存
             </Button>
@@ -414,6 +456,7 @@ function FillTab() {
               icon={<SendOutlined />}
               onClick={() => handleSave(true)}
               loading={saving}
+              disabled={!selectedPhase}
             >
               提交
             </Button>
@@ -455,6 +498,7 @@ function AdminAllTab() {
   const [data, setData] = useState<Participation[]>([]);
   const [loading, setLoading] = useState(false);
   const [filterProject, setFilterProject] = useState<number | undefined>();
+  const [filterPhase, setFilterPhase] = useState<'售前' | '交付' | undefined>();
   const [filterDept, setFilterDept] = useState<string | undefined>();
 
   // 项目列表（用于筛选器）
@@ -465,6 +509,7 @@ function AdminAllTab() {
     try {
       const res = await participationApi.listAll({
         project_id: filterProject,
+        phase: filterPhase,
         department: filterDept,
       });
       setData(res);
@@ -473,7 +518,7 @@ function AdminAllTab() {
     } finally {
       setLoading(false);
     }
-  }, [message, filterProject, filterDept]);
+  }, [message, filterProject, filterPhase, filterDept]);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -492,6 +537,7 @@ function AdminAllTab() {
   const columns: ColumnsType<Participation> = [
     { title: '员工姓名', dataIndex: 'employee_name', width: 100 },
     { title: '部门', dataIndex: 'department', width: 120 },
+    { title: '阶段', dataIndex: 'phase', width: 80, render: (v: string) => <Tag color={v === '售前' ? 'blue' : 'green'}>{v}</Tag> },
     {
       title: '参与系数',
       dataIndex: 'participation_coeff',
@@ -524,6 +570,17 @@ function AdminAllTab() {
             label: `${p.project_code} - ${p.project_name}`,
             value: p.id,
           }))}
+        />
+        <Select
+          placeholder="按阶段筛选"
+          allowClear
+          style={{ width: 120 }}
+          value={filterPhase}
+          onChange={(val) => setFilterPhase(val)}
+          options={[
+            { label: '售前', value: '售前' },
+            { label: '交付', value: '交付' },
+          ]}
         />
         <Select
           placeholder="按部门筛选"

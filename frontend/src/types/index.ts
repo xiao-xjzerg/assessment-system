@@ -245,6 +245,7 @@ export interface Participation {
   employee_id: number;
   employee_name: string;
   department: string;
+  phase: '售前' | '交付';
   participation_coeff: number | string;
   status: string | null;
 }
@@ -258,11 +259,13 @@ export interface ParticipationItem {
 
 export interface ParticipationSave {
   project_id: number;
+  phase: '售前' | '交付';
   items: ParticipationItem[];
 }
 
 export interface ParticipationSummary {
   project_id: number;
+  phase: '售前' | '交付';
   project_name: string;
   project_code: string;
   department: string | null;

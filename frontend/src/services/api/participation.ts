@@ -14,12 +14,13 @@ export const participationApi = {
   listMyProjects: () => get<Project[]>('/participations/my-projects'),
 
   /** 某项目的参与度记录 */
-  listByProject: (projectId: number) =>
-    get<Participation[]>(`/participations/project/${projectId}`),
+  listByProject: (projectId: number, phase?: string) =>
+    get<Participation[]>(`/participations/project/${projectId}`, { params: { phase } }),
 
   /** 管理员：查询所有参与度 */
   listAll: (params: {
     project_id?: number;
+    phase?: string;
     department?: string;
     status?: string;
   } = {}) => get<Participation[]>('/participations', { params }),

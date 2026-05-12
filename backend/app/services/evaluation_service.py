@@ -399,6 +399,21 @@ async def update_eval_relation(
     emp = emp_result.scalar_one_or_none()
     if emp is None:
         raise ValueError("评价人不存在")
+    if emp.cycle_id != relation.cycle_id:
+        raise ValueError("评价人不属于当前考核周期")
+    if new_evaluator_id == relation.evaluatee_id:
+        raise ValueError("评价人不能是被评价人本人")
+
+    duplicate_result = await db.execute(
+        select(EvalRelation).where(
+            EvalRelation.cycle_id == relation.cycle_id,
+            EvalRelation.evaluatee_id == relation.evaluatee_id,
+            EvalRelation.evaluator_id == new_evaluator_id,
+            EvalRelation.id != relation_id,
+        )
+    )
+    if duplicate_result.scalar_one_or_none() is not None:
+        raise ValueError("该评价人已存在对同一被评价人的互评关系")
 
     relation.evaluator_id = new_evaluator_id
     relation.evaluator_name = new_evaluator_name

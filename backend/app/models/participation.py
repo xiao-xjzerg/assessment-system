@@ -14,6 +14,7 @@ class Participation(Base):
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False, comment="员工ID")
     employee_name = Column(String(50), nullable=False, comment="员工姓名")
     department = Column(String(50), nullable=False, comment="员工所属部门")
+    phase = Column(String(20), nullable=False, default="交付", comment="项目阶段：售前/交付")
     participation_coeff = Column(Numeric(5, 4), default=0, comment="参与度系数 0~1")
     status = Column(String(20), default="未填", comment="状态：未填/已提交/已修改")
     created_at = Column(DateTime, server_default=func.now())

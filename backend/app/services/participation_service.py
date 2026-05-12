@@ -10,12 +10,15 @@ from app.models.project import Project
 from app.models.employee import Employee
 
 
-async def get_participations_by_project(db: AsyncSession, project_id: int) -> list:
+async def get_participations_by_project(
+    db: AsyncSession, project_id: int, phase: Optional[str] = None
+) -> list:
     """获取某项目的所有参与度记录"""
-    result = await db.execute(
-        select(Participation).where(Participation.project_id == project_id)
-        .order_by(Participation.department, Participation.id)
-    )
+    query = select(Participation).where(Participation.project_id == project_id)
+    if phase:
+        query = query.where(Participation.phase == phase)
+    query = query.order_by(Participation.phase, Participation.department, Participation.id)
+    result = await db.execute(query)
     return result.scalars().all()
 
 
@@ -23,6 +26,7 @@ async def get_participations_by_cycle(
     db: AsyncSession,
     cycle_id: int,
     project_id: Optional[int] = None,
+    phase: Optional[str] = None,
     department: Optional[str] = None,
     status: Optional[str] = None,
 ) -> list:
@@ -30,11 +34,15 @@ async def get_participations_by_cycle(
     query = select(Participation).where(Participation.cycle_id == cycle_id)
     if project_id:
         query = query.where(Participation.project_id == project_id)
+    if phase:
+        query = query.where(Participation.phase == phase)
     if department:
         query = query.where(Participation.department == department)
     if status:
         query = query.where(Participation.status == status)
-    query = query.order_by(Participation.project_id, Participation.department, Participation.id)
+    query = query.order_by(
+        Participation.project_id, Participation.phase, Participation.department, Participation.id
+    )
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -74,6 +82,7 @@ async def save_participations(
     db: AsyncSession,
     cycle_id: int,
     project_id: int,
+    phase: str,
     items: list,
     submit: bool = False,
 ) -> list:
@@ -83,6 +92,23 @@ async def save_participations(
     project = proj_result.scalar_one_or_none()
     if project is None:
         raise ValueError("项目不存在")
+    if project.cycle_id != cycle_id:
+        raise ValueError("项目不属于当前考核周期")
+    if phase not in ("售前", "交付"):
+        raise ValueError("项目阶段必须为售前或交付")
+
+    presale_available = (
+        Decimal(str(project.presale_progress or 0))
+        - Decimal(str(project.used_presale_progress or 0))
+    ) > 0
+    delivery_available = (
+        Decimal(str(project.delivery_progress or 0))
+        - Decimal(str(project.used_delivery_progress or 0))
+    ) > 0
+    if phase == "售前" and not presale_available:
+        raise ValueError("该项目没有可填报的售前阶段")
+    if phase == "交付" and not delivery_available:
+        raise ValueError("该项目没有可填报的交付阶段")
 
     # 校验参与度合计
     errors = validate_participation_sum(items)
@@ -103,6 +129,7 @@ async def save_participations(
         delete(Participation).where(
             Participation.project_id == project_id,
             Participation.cycle_id == cycle_id,
+            Participation.phase == phase,
         )
     )
 
@@ -115,6 +142,7 @@ async def save_participations(
             employee_id=item.employee_id,
             employee_name=item.employee_name,
             department=item.department,
+            phase=phase,
             participation_coeff=item.participation_coeff,
             status=status,
         )
@@ -148,26 +176,41 @@ async def get_project_participation_summary(db: AsyncSession, cycle_id: int) -> 
     all_projects = projects_result.scalars().all()
 
     parts_result = await db.execute(
-        select(Participation.project_id, Participation.status).where(
+        select(Participation.project_id, Participation.phase, Participation.status).where(
             Participation.cycle_id == cycle_id
         )
     )
-    project_statuses: dict[int, set[str]] = {}
-    for pid, status in parts_result.all():
-        project_statuses.setdefault(pid, set()).add(status or "")
+    project_statuses: dict[tuple[int, str], set[str]] = {}
+    for pid, phase, status in parts_result.all():
+        project_statuses.setdefault((pid, phase), set()).add(status or "")
 
     submitted_set = {"已提交", "已修改"}
 
     summary = []
     for p in all_projects:
-        statuses = project_statuses.get(p.id, set())
-        filled = len(statuses) > 0 and statuses.issubset(submitted_set)
-        summary.append({
-            "project_id": p.id,
-            "project_name": p.project_name,
-            "project_code": p.project_code,
-            "department": p.department,
-            "pm_name": p.pm_name,
-            "filled": filled,
-        })
+        presale_available = (
+            Decimal(str(p.presale_progress or 0))
+            - Decimal(str(p.used_presale_progress or 0))
+        ) > 0
+        delivery_available = (
+            Decimal(str(p.delivery_progress or 0))
+            - Decimal(str(p.used_delivery_progress or 0))
+        ) > 0
+        phases = []
+        if presale_available:
+            phases.append("售前")
+        if delivery_available:
+            phases.append("交付")
+        for phase in phases:
+            statuses = project_statuses.get((p.id, phase), set())
+            filled = len(statuses) > 0 and statuses.issubset(submitted_set)
+            summary.append({
+                "project_id": p.id,
+                "phase": phase,
+                "project_name": p.project_name,
+                "project_code": p.project_code,
+                "department": p.department,
+                "pm_name": p.pm_name,
+                "filled": filled,
+            })
     return summary

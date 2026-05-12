@@ -85,7 +85,12 @@ async def _generate_project_score_details(db: AsyncSession, cycle_id: int):
         workload_coeff = Decimal(str(project.workload_coeff or 0))
         participation_coeff = Decimal(str(part.participation_coeff or 0))
 
-        if current_presale_progress > 0 and workload_coeff > 0 and participation_coeff > 0:
+        if (
+            part.phase == "售前"
+            and current_presale_progress > 0
+            and workload_coeff > 0
+            and participation_coeff > 0
+        ):
             presale_score = (
                 Decimal(str(BASE_SCORE_PRESALE))
                 * current_presale_progress
@@ -115,7 +120,12 @@ async def _generate_project_score_details(db: AsyncSession, cycle_id: int):
         if current_delivery_progress < 0:
             current_delivery_progress = Decimal("0")
 
-        if current_delivery_progress > 0 and workload_coeff > 0 and participation_coeff > 0:
+        if (
+            part.phase == "交付"
+            and current_delivery_progress > 0
+            and workload_coeff > 0
+            and participation_coeff > 0
+        ):
             delivery_score = (
                 Decimal(str(BASE_SCORE_DELIVERY))
                 * current_delivery_progress

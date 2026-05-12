@@ -35,7 +35,8 @@ import {
   EditOutlined,
 } from '@ant-design/icons';
 import { resultApi } from '@/services/api/result';
-import type { FinalResult } from '@/types';
+import { cycleApi } from '@/services/api/cycle';
+import type { Cycle, FinalResult } from '@/types';
 import { ALL_DEPARTMENTS, ALL_ASSESS_TYPES } from '@/utils/constants';
 import { formatNumber, downloadBlob, extractFilename } from '@/utils/format';
 import { useUserStore } from '@/stores/userStore';
@@ -46,6 +47,8 @@ export default function ResultPage() {
 
   const [results, setResults] = useState<FinalResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [cycles, setCycles] = useState<Cycle[]>([]);
+  const [selectedCycleId, setSelectedCycleId] = useState<number | undefined>();
   const [filter, setFilter] = useState<{
     employee_name?: string;
     department?: string;
@@ -55,14 +58,23 @@ export default function ResultPage() {
   }>({});
 
   const loadResults = useCallback(async () => {
+    if (isAdmin && !selectedCycleId) return;
     setLoading(true);
     try {
-      const params: Record<string, string | undefined> = {};
+      const params: {
+        cycle_id?: number;
+        employee_name?: string;
+        department?: string;
+        group_name?: string;
+        position?: string;
+        assess_type?: string;
+      } = {};
       if (filter.employee_name) params.employee_name = filter.employee_name;
       if (filter.department) params.department = filter.department;
       if (filter.group_name) params.group_name = filter.group_name;
       if (filter.position) params.position = filter.position;
       if (filter.assess_type) params.assess_type = filter.assess_type;
+      if (isAdmin && selectedCycleId) params.cycle_id = selectedCycleId;
       const res = await resultApi.list(params);
       setResults(res);
     } catch {
@@ -70,11 +82,34 @@ export default function ResultPage() {
     } finally {
       setLoading(false);
     }
-  }, [message, filter]);
+  }, [message, filter, isAdmin, selectedCycleId]);
 
   useEffect(() => {
     loadResults();
   }, [loadResults]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    cycleApi.list()
+      .then((res) => {
+        setCycles(res);
+        const active = res.find((c) => c.is_active);
+        if (active) {
+          setSelectedCycleId(active.id);
+        } else if (res.length > 0) {
+          setSelectedCycleId(res[0].id);
+        }
+      })
+      .catch(() => {
+        message.error('加载考核周期失败');
+      });
+  }, [isAdmin, message]);
+
+  const selectedCycle = useMemo(
+    () => cycles.find((c) => c.id === selectedCycleId),
+    [cycles, selectedCycleId],
+  );
+  const isArchivedView = !!selectedCycle?.is_archived;
 
   // 用于「组/中心」「岗位」筛选下拉的选项（基于当前已加载的结果去重）
   const groupOptions = useMemo(() => {
@@ -114,7 +149,7 @@ export default function ResultPage() {
   // ==================== 导出 ====================
   const handleExport = async () => {
     try {
-      const res = await resultApi.exportExcel();
+      const res = await resultApi.exportExcel(isAdmin ? selectedCycleId : undefined);
       const filename = extractFilename(res.headers?.['content-disposition'], '成绩总表.xlsx');
       downloadBlob(res.data, filename);
       message.success('导出成功');
@@ -125,7 +160,7 @@ export default function ResultPage() {
 
   const handleExportAll = async () => {
     try {
-      const res = await resultApi.exportAll();
+      const res = await resultApi.exportAll(isAdmin ? selectedCycleId : undefined);
       const filename = extractFilename(res.headers?.['content-disposition'], '全量报表.xlsx');
       downloadBlob(res.data, filename);
       message.success('导出成功');
@@ -299,7 +334,13 @@ export default function ResultPage() {
       width: 80,
       fixed: 'right',
       render: (_: unknown, record: FinalResult) => (
-        <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openComment(record)}>
+        <Button
+          type="link"
+          size="small"
+          icon={<EditOutlined />}
+          onClick={() => openComment(record)}
+          disabled={isArchivedView}
+        >
           评语
         </Button>
       ),
@@ -330,6 +371,7 @@ export default function ResultPage() {
                   icon={<CalculatorOutlined />}
                   loading={calculating}
                   onClick={handleCalculate}
+                  disabled={isArchivedView}
                 >
                   触发计算
                 </Button>
@@ -340,6 +382,7 @@ export default function ResultPage() {
                   danger
                   icon={<CheckCircleOutlined />}
                   onClick={handleConfirm}
+                  disabled={isArchivedView}
                 >
                   确认归档
                 </Button>
@@ -349,6 +392,18 @@ export default function ResultPage() {
         }
       >
         <Space wrap style={{ marginBottom: 16 }}>
+          {isAdmin && (
+            <Select
+              placeholder="考核周期"
+              style={{ width: 180 }}
+              value={selectedCycleId}
+              onChange={(val) => setSelectedCycleId(val)}
+              options={cycles.map((c) => ({
+                label: `${c.name}${c.is_archived ? '（已归档）' : c.is_active ? '（当前）' : ''}`,
+                value: c.id,
+              }))}
+            />
+          )}
           <Input
             placeholder="员工姓名"
             allowClear

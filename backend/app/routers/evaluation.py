@@ -40,6 +40,7 @@ from app.services.evaluation_service import (
     export_eval_summaries_data,
     get_eval_progress,
 )
+from app.utils.export import excel_content_disposition
 
 router = APIRouter(prefix="/api/evaluations", tags=["360综合评价"])
 
@@ -141,7 +142,11 @@ async def export_relations(
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename=eval_relations_{cycle.name}.xlsx"},
+        headers={
+            "Content-Disposition": excel_content_disposition(
+                f"eval_relations_{cycle.name}.xlsx"
+            )
+        },
     )
 
 
@@ -305,7 +310,11 @@ async def export_summaries(
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename=eval_summaries_{cycle.name}.xlsx"},
+        headers={
+            "Content-Disposition": excel_content_disposition(
+                f"eval_summaries_{cycle.name}.xlsx"
+            )
+        },
     )
 
 

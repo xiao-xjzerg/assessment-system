@@ -59,6 +59,7 @@ async def list_my_projects(
 @router.get("/project/{project_id}", response_model=ResponseModel)
 async def list_by_project(
     project_id: int,
+    phase: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: Employee = Depends(require_roles([ROLE_PM, ROLE_ADMIN, ROLE_LEADER])),
 ):
@@ -74,7 +75,7 @@ async def list_by_project(
         if proj is None or proj.pm_id != current_user.id:
             raise HTTPException(status_code=403, detail="无权查看此项目的参与度")
 
-    items = await get_participations_by_project(db, project_id)
+    items = await get_participations_by_project(db, project_id, phase)
     data = [ParticipationOut.model_validate(i).model_dump() for i in items]
     return ResponseModel(data=data)
 
@@ -83,6 +84,7 @@ async def list_by_project(
 @router.get("", response_model=ResponseModel)
 async def list_all(
     project_id: Optional[int] = Query(None),
+    phase: Optional[str] = Query(None),
     department: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -90,7 +92,7 @@ async def list_all(
 ):
     """管理员/领导查看所有参与度记录"""
     cycle = await _get_active_cycle(db)
-    items = await get_participations_by_cycle(db, cycle.id, project_id, department, status)
+    items = await get_participations_by_cycle(db, cycle.id, project_id, phase, department, status)
     data = [ParticipationOut.model_validate(i).model_dump() for i in items]
     return ResponseModel(data=data)
 
@@ -117,7 +119,7 @@ async def save(
 
     try:
         records = await save_participations(
-            db, cycle.id, body.project_id, body.items, submit=submit
+            db, cycle.id, body.project_id, body.phase, body.items, submit=submit
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

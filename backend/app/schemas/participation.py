@@ -13,6 +13,7 @@ class ParticipationItem(BaseModel):
 
 class ParticipationSave(BaseModel):
     project_id: int
+    phase: str = Field(..., pattern="^(售前|交付)$")
     items: List[ParticipationItem]
 
 
@@ -23,6 +24,7 @@ class ParticipationOut(BaseModel):
     employee_id: int
     employee_name: str
     department: str
+    phase: str
     participation_coeff: Decimal
     status: Optional[str] = None
 

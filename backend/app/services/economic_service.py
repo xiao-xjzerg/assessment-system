@@ -394,8 +394,18 @@ async def _load_participations(db: AsyncSession, cycle_id: int) -> dict[int, lis
     result = await db.execute(
         select(Participation).where(Participation.cycle_id == cycle_id)
     )
-    parts: dict[int, list] = {}
+    dedup: dict[tuple[int, int], Participation] = {}
     for p in result.scalars().all():
+        key = (p.employee_id, p.project_id)
+        existing = dedup.get(key)
+        if existing is None:
+            dedup[key] = p
+            continue
+        if D(str(p.participation_coeff or 0)) > D(str(existing.participation_coeff or 0)):
+            dedup[key] = p
+
+    parts: dict[int, list] = {}
+    for p in dedup.values():
         parts.setdefault(p.employee_id, []).append(p)
     return parts
 

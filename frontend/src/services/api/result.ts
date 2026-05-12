@@ -10,6 +10,7 @@ export const resultApi = {
 
   list: (
     params: {
+      cycle_id?: number;
       department?: string;
       assess_type?: string;
       employee_name?: string;
@@ -27,10 +28,12 @@ export const resultApi = {
     put<FinalResult>(`/results/${resultId}/comment`, { leader_comment }),
 
   /** 导出成绩总表（按考核类型分 Sheet） */
-  exportExcel: () => download('/results/export'),
+  exportExcel: (cycleId?: number) =>
+    download('/results/export', { params: { cycle_id: cycleId } }),
 
   /** 全量导出（4 个 Sheet：积分/综合测评/经济指标/成绩总表） */
-  exportAll: () => download('/results/export-all'),
+  exportAll: (cycleId?: number) =>
+    download('/results/export-all', { params: { cycle_id: cycleId } }),
 
   /** 管理员确认考核完成并归档 */
   confirm: () => post<null>('/results/confirm'),

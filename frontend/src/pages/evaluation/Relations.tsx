@@ -208,7 +208,6 @@ export default function RelationsPage() {
           size="small"
           icon={<EditOutlined />}
           onClick={() => openEdit(record)}
-          disabled={record.is_completed}
         >
           编辑
         </Button>
@@ -342,7 +341,9 @@ export default function RelationsPage() {
               showSearch
               placeholder="搜索并选择员工"
               optionFilterProp="label"
-              options={employees.map((e) => ({
+              options={employees
+                .filter((e) => e.id !== editingRelation?.evaluatee_id)
+                .map((e) => ({
                 label: `${e.name}（${e.department} - ${e.group_name || ''}）`,
                 value: e.id,
               }))}

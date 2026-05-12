@@ -386,13 +386,14 @@ export default function DashboardPage() {
       >
         {partProgress && partProgress.unfilled.length > 0 ? (
           <Table<ParticipationSummary>
-            rowKey="project_id"
+            rowKey={(record) => `${record.project_id}-${record.phase}`}
             size="small"
             pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 个未完成项目` }}
             dataSource={partProgress.unfilled}
             columns={
               [
                 { title: '项目令号', dataIndex: 'project_code', width: 140 },
+                { title: '阶段', dataIndex: 'phase', width: 80 },
                 { title: '项目名称', dataIndex: 'project_name', ellipsis: true },
                 { title: '主承部门', dataIndex: 'department', width: 120 },
                 { title: '项目经理', dataIndex: 'pm_name', width: 100 },
