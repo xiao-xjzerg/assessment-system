@@ -302,7 +302,7 @@ export default function ProfilePage() {
                       />
                     </Col>
                     <Col span={8}>
-                      <Statistic title="排名" value={result.ranking > 0 ? result.ranking : '-'} />
+                      <Statistic title="排名（部门同考核类型）" value={result.ranking > 0 ? result.ranking : '-'} />
                     </Col>
                     <Col span={8}>
                       <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>评定等级</div>

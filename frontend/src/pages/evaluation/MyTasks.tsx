@@ -1,5 +1,5 @@
 /**
- * 我的评价任���页 —— 所有登��用户可见。
+ * 我的评价任务页 —— 所有登录用户可见。
  *
  * 功能：
  *   - 展示当前用户待完成 & 已完成的评价任务列表
@@ -84,7 +84,7 @@ export default function MyTasksPage() {
       setScoreOpen(false);
       loadTasks();
     } catch {
-      message.error('��分提交失败');
+      message.error('评分提交失败');
     } finally {
       setSubmitting(false);
     }
@@ -109,7 +109,7 @@ export default function MyTasksPage() {
   // 表列
   const columns: ColumnsType<EvalRelation> = [
     { title: '被评人', dataIndex: 'evaluatee_name', width: 100 },
-    { title: '被评��考核类型', dataIndex: 'evaluatee_assess_type', width: 130 },
+    { title: '被评人考核类型', dataIndex: 'evaluatee_assess_type', width: 130 },
     {
       title: '评价人类型',
       dataIndex: 'evaluator_type',
@@ -227,7 +227,7 @@ export default function MyTasksPage() {
 
       {/* 查看评分详情弹窗 */}
       <Modal
-        title={detailTask ? `���分详情 - ${detailTask.evaluatee_name}` : '评分详情'}
+        title={detailTask ? `评分详情 - ${detailTask.evaluatee_name}` : '评分详情'}
         open={detailOpen}
         onCancel={() => setDetailOpen(false)}
         footer={null}
