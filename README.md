@@ -1,6 +1,6 @@
 # 员工季度考核管理系统
 
-面向实施交付部、产品研发部等业务团队的季度员工考核管理系统，覆盖基础数据维护、项目参与度、积分统计、经济指标、360 综合评价、加减分、最终成绩和归档结果查看等流程。
+以积分管理为基础的考核管理系统，覆盖基础数据维护、项目参与度、积分统计、经济指标、360 综合评价、加减分、最终成绩和归档结果查看等流程。
 
 ## 功能概览
 
@@ -35,13 +35,6 @@ pip install -r requirements.txt
 python -c "from alembic.config import Config; from alembic import command; command.upgrade(Config('alembic.ini'), 'head')"
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
-
-API 文档：
-
-```text
-http://localhost:8000/docs
-```
-
 ### 前端
 
 ```bash
@@ -89,5 +82,4 @@ python -c "from alembic.config import Config; from alembic import command; comma
 ## 说明
 
 - 当前默认数据库为 SQLite，开发数据位于 `backend/data/app.db`。
-- `CLAUDE.md` 属于本地协作记录文件，已在 `.gitignore` 中忽略，不纳入 Git 提交。
 - 详细业务操作可参考 [docs/系统操作手册.md](docs/系统操作手册.md)。
